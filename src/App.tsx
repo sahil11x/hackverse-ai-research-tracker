@@ -337,6 +337,7 @@ export default function App() {
           onStartResearch={handleStartResearch}
           isWorkingScan={isRunningScan}
           onToggleTracking={() => activeMission && handleToggleMissionStatus(activeMission.id)}
+          orchestration={activeMission?.lastOrchestration}
         />
 
         {/* Right Sidebar: Trend Detection Radar & Live Alerts */}

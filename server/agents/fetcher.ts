@@ -127,6 +127,7 @@ export async function collectMultiSourceRawItems(
   const toolPlan = await planDynamicTools(objective, {
     topic: missionContext?.topic || objective,
     description: missionContext?.description || objective,
+    objective: missionContext?.objective || objective,
     keywords: missionContext?.keywords || plan.focusAreas,
     companies: missionContext?.companies || plan.targetEntities.map((e) => e.name),
     competitors: missionContext?.competitors,

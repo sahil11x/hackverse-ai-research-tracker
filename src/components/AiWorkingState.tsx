@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, CheckCircle2, Loader2, Sparkles, Database, FileSearch, Cpu, ArrowRight } from 'lucide-react';
+import { Bot, CheckCircle2, Loader2 } from 'lucide-react';
 
 interface AiWorkingStateProps {
   currentTopic?: string;
@@ -8,46 +8,46 @@ interface AiWorkingStateProps {
 interface StepItem {
   id: string;
   title: string;
-  activeLabel: string;
-  completedLabel: string;
+  activeDetail: string;
+  completedDetail: string;
   durationMs: number;
 }
 
 const STEPS: StepItem[] = [
   {
     id: 'step-1',
-    title: 'Understanding research objective...',
-    activeLabel: 'Parsing entities, technical concepts & competitor scope',
-    completedLabel: 'Research objective identified',
-    durationMs: 900
+    title: '1. Agent 1: Research Planner Agent',
+    activeDetail: 'Classifying research intent and decomposing domain entities...',
+    completedDetail: 'Research plan and hypotheses formulated',
+    durationMs: 700
   },
   {
     id: 'step-2',
-    title: 'Planning research sources...',
-    activeLabel: 'Evaluating ArXiv, Patents, Tech News, SEC Filings, Social Media, GitHub',
-    completedLabel: 'Relevant sources selected',
-    durationMs: 1100
+    title: '2. Tool Selection & Optimized Query Generation',
+    activeDetail: 'Selecting arXiv and GitHub tools with targeted queries...',
+    completedDetail: 'Optimized queries generated & handoff dispatched',
+    durationMs: 800
   },
   {
     id: 'step-3',
-    title: 'Collecting evidence...',
-    activeLabel: 'Querying technical disclosures & verified repository feeds',
-    completedLabel: 'Research sources queried',
-    durationMs: 1300
+    title: '3. Live Evidence Ingestion',
+    activeDetail: 'Executing real arXiv & GitHub endpoints in parallel...',
+    completedDetail: 'Live evidence bundle collected with fault isolation',
+    durationMs: 1100
   },
   {
     id: 'step-4',
-    title: 'Analyzing competitive signals...',
-    activeLabel: 'Cross-correlating breakthroughs, yield data & supply chain reports',
-    completedLabel: 'Evidence analyzed',
-    durationMs: 1200
+    title: '4. Agent 2: Intelligence Analyst Agent',
+    activeDetail: 'Deduplicating & analyzing live evidence against plan focus areas...',
+    completedDetail: 'Signal relevance and strategic impact evaluated',
+    durationMs: 900
   },
   {
     id: 'step-5',
-    title: 'Synthesizing actionable intelligence...',
-    activeLabel: 'Formulating What Changed, Why It Matters & Recommended Actions',
-    completedLabel: 'Actionable intelligence generated',
-    durationMs: 1000
+    title: '5. Actionable Intelligence Synthesis',
+    activeDetail: 'Synthesizing actionable findings with source provenance attached...',
+    completedDetail: 'Verified actionable intelligence ready',
+    durationMs: 800
   }
 ];
 
@@ -65,38 +65,38 @@ export const AiWorkingState: React.FC<AiWorkingStateProps> = ({ currentTopic }) 
   }, [currentStepIndex]);
 
   return (
-    <div className="bg-[#121214] border border-[#00FF9C]/40 rounded-xl p-6 sm:p-8 shadow-2xl space-y-6 animate-in fade-in duration-300">
+    <div className="bg-[#121214] border border-[#27272A] rounded-xl p-6 sm:p-7 shadow-sm space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[#27272A] pb-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#00FF9C]/10 border border-[#00FF9C]/30 flex items-center justify-center">
-            <Bot className="w-5 h-5 text-[#00FF9C] animate-pulse" />
+          <div className="w-8 h-8 rounded-lg bg-[#00FF9C]/10 border border-[#00FF9C]/30 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-[#00FF9C]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-[#00FF9C] font-bold bg-[#00FF9C]/10 px-2 py-0.5 rounded">
-                AUTONOMOUS PIPELINE
+              <span className="text-[10px] font-mono uppercase tracking-wider text-[#00FF9C] font-bold bg-[#00FF9C]/10 px-2 py-0.5 rounded">
+                RESEARCH PROGRESS
               </span>
-              <span className="text-xs font-mono text-[#71717A]">Processing query</span>
+              <span className="text-xs text-[#71717A] hidden sm:inline">Executing research workflow</span>
             </div>
-            <h2 className="text-lg font-bold text-white mt-0.5">
-              AI WORKING
-            </h2>
+            <h3 className="text-base font-bold text-white mt-0.5">
+              Conducting Autonomous Investigation
+            </h3>
           </div>
         </div>
 
         {currentTopic && (
           <div className="text-right hidden sm:block">
-            <span className="text-[10px] font-mono uppercase text-[#71717A] block">Target Focus</span>
-            <span className="text-xs font-mono text-[#00FF9C] truncate max-w-xs block font-bold">
+            <span className="text-[10px] font-mono text-[#71717A] block">Target</span>
+            <span className="text-xs font-mono text-[#E4E4E7] truncate max-w-xs block font-semibold">
               {currentTopic}
             </span>
           </div>
         )}
       </div>
 
-      {/* Steps List */}
-      <div className="space-y-4">
+      {/* 5 Clean Sequential Steps */}
+      <div className="space-y-2.5">
         {STEPS.map((step, idx) => {
           const isDone = idx < currentStepIndex;
           const isCurrent = idx === currentStepIndex;
@@ -104,44 +104,50 @@ export const AiWorkingState: React.FC<AiWorkingStateProps> = ({ currentTopic }) 
           return (
             <div
               key={step.id}
-              className={`p-3.5 rounded-lg border transition-all ${
+              className={`p-3 rounded-lg border transition-all ${
                 isDone
-                  ? 'bg-[#161618] border-[#00FF9C]/30 text-[#E4E4E7]'
+                  ? 'bg-[#141416] border-[#27272A] text-[#E4E4E7]'
                   : isCurrent
-                  ? 'bg-[#18181C] border-[#00FF9C] shadow-[0_0_15px_rgba(0,255,156,0.1)] text-white'
-                  : 'bg-[#121214]/50 border-[#27272A]/50 text-[#71717A]'
+                  ? 'bg-[#161619] border-[#00FF9C]/50 text-white'
+                  : 'bg-[#101012] border-[#1E1E22] text-[#52525B]'
               }`}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   {isDone ? (
-                    <CheckCircle2 className="w-5 h-5 text-[#00FF9C] shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-[#00FF9C] shrink-0" />
                   ) : isCurrent ? (
-                    <Loader2 className="w-5 h-5 text-[#00FF9C] animate-spin shrink-0" />
+                    <Loader2 className="w-4 h-4 text-[#00FF9C] animate-spin shrink-0" />
                   ) : (
-                    <div className="w-5 h-5 rounded-full border border-[#3F3F46] flex items-center justify-center shrink-0">
-                      <span className="text-[10px] font-mono text-[#71717A]">{idx + 1}</span>
+                    <div className="w-4 h-4 rounded-full border border-[#3F3F46] flex items-center justify-center shrink-0">
+                      <span className="text-[9px] font-mono text-[#71717A]">{idx + 1}</span>
                     </div>
                   )}
 
-                  <div>
-                    <div className="text-xs sm:text-sm font-semibold flex items-center gap-2">
-                      <span>{step.title}</span>
-                    </div>
-                    <div className="text-[11px] font-mono mt-0.5">
+                  <div className="min-w-0">
+                    <span className="text-xs sm:text-sm font-medium block truncate">
+                      {step.title}
+                    </span>
+                    <span className="text-[11px] font-mono block">
                       {isDone ? (
-                        <span className="text-[#00FF9C] font-medium">✓ {step.completedLabel}</span>
+                        <span className="text-[#00FF9C]">✓ {step.completedDetail}</span>
                       ) : isCurrent ? (
-                        <span className="text-sky-400">● {step.activeLabel}...</span>
+                        <span className="text-sky-400 font-sans">{step.activeDetail}</span>
                       ) : (
-                        <span className="text-[#52525B]">Pending queue</span>
+                        <span className="text-[#52525B]">Queued</span>
                       )}
-                    </div>
+                    </span>
                   </div>
                 </div>
 
                 <div className="text-[10px] font-mono text-[#71717A] shrink-0">
-                  {isDone ? 'COMPLETED' : isCurrent ? 'IN PROGRESS' : 'QUEUED'}
+                  {isDone ? (
+                    <span className="text-[#00FF9C]">DONE</span>
+                  ) : isCurrent ? (
+                    <span className="text-sky-400 font-semibold">RUNNING</span>
+                  ) : (
+                    <span>WAITING</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -149,11 +155,11 @@ export const AiWorkingState: React.FC<AiWorkingStateProps> = ({ currentTopic }) 
         })}
       </div>
 
-      {/* Footer Info */}
-      <div className="p-3 bg-[#161618] border border-[#27272A] rounded-lg text-xs font-mono text-[#71717A] flex items-center justify-between">
-        <span>Grounded Multi-Source Validation • Zero Hallucination Mode</span>
-        <span className="text-[#00FF9C] animate-pulse">Running cycle...</span>
+      <div className="pt-1 text-[11px] font-mono text-[#71717A] flex items-center justify-between">
+        <span>Verified multi-source correlation</span>
+        <span className="text-[#00FF9C]">Step {currentStepIndex + 1} of 5</span>
       </div>
     </div>
   );
 };
+

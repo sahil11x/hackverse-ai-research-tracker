@@ -16,17 +16,18 @@ export async function search_arxiv(params: ArxivSearchInput): Promise<ArxivSearc
   const items: ArxivSearchResult[] = [];
 
   // Build formatted query for arXiv syntax
-  // If query does not already contain field prefixes like "all:", "ti:", "abs:", prepend "all:"
   let formattedQuery = cleanQuery;
   if (!/(ti|au|abs|co|jr|rn|all):/.test(cleanQuery)) {
-    // Sanitize quotes and special characters for arXiv query string
+    const stopWords = new Set(['and', 'or', 'the', 'with', 'for', 'from', 'in', 'on', 'at', 'by', 'an', 'a', 'to', 'recent', 'latest', 'compare', 'research']);
     const tokens = cleanQuery
-      .replace(/[^\w\s\-"']/g, ' ')
+      .replace(/[^\w\s-]/g, ' ')
       .split(/\s+/)
-      .filter((t) => t.length > 0);
+      .map((t) => t.trim())
+      .filter((t) => t.length > 2 && !stopWords.has(t.toLowerCase()));
 
-    if (tokens.length > 0) {
-      formattedQuery = `all:${tokens.join(' AND all:')}`;
+    const keyTokens = tokens.slice(0, 3);
+    if (keyTokens.length > 0) {
+      formattedQuery = keyTokens.map((t) => `all:${t}`).join(' AND ');
     } else {
       formattedQuery = `all:${cleanQuery}`;
     }

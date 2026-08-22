@@ -1,10 +1,18 @@
-import { analyzeAndScoreItems } from './agents/analyzer';
-import { collectMultiSourceRawItems } from './agents/fetcher';
-import { expandObjectiveIntoQueries } from './agents/queryPlanner';
+import { executeResearchPlannerAgent } from './agents/researchPlanner';
+import { executeEvidenceCollection } from './agents/evidenceCollector';
+import { executeIntelligenceAnalystAgent } from './agents/intelligenceAnalyst';
 import { correlateAndClusterItems } from './agents/trendCorrelator';
 import { store } from './store';
-import { SourceType, SourceUsageStat } from '../src/types';
+import {
+  MultiAgentOrchestrationSummary,
+  SourceType,
+  SourceUsageStat
+} from '../src/types';
 
+/**
+ * Core Multi-Agent Orchestrator:
+ * Executes Agent 1 (Research Planner) -> Live Tools Execution Layer -> Agent 2 (Intelligence Analyst) -> Trend & Alert Engine.
+ */
 export async function runAutonomousMissionCycle(missionId: string) {
   const startTime = Date.now();
   const mission = store.getMission(missionId);
@@ -13,80 +21,104 @@ export async function runAutonomousMissionCycle(missionId: string) {
     throw new Error(`Mission ${missionId} not found`);
   }
 
-  store.addLog('INFO', `Starting autonomous intelligence cycle for [${mission.code}] "${mission.name}"`, 'Orchestrator');
+  const rawObjective = mission.objective || `${mission.name}: ${mission.topic || mission.description}`;
+
+  store.addLog(
+    'SYSTEM',
+    `============================================================\nSTARTING MULTI-AGENT RESEARCH PIPELINE: [${mission.code}] "${mission.name}"\n============================================================`,
+    'MultiAgentOrchestrator'
+  );
 
   try {
-    // Stage 1: Query Expansion & Plan Generation
-    store.addLog('INFO', `Step 1/5: Expanding tracking objective into multi-source search vectors...`, 'QueryPlanner');
-    const plan = await expandObjectiveIntoQueries({
+    // =========================================================================
+    // AGENT 1: RESEARCH PLANNER AGENT
+    // =========================================================================
+    store.addLog(
+      'INFO',
+      `STAGE 1/4: AGENT 1 (RESEARCH PLANNER) — Analyzing intent, selecting tools, generating optimized queries...`,
+      'ResearchPlannerAgent'
+    );
+
+    const { plan, handoff } = await executeResearchPlannerAgent({
       name: mission.name,
-      topic: mission.topic || mission.objective,
-      description: mission.description || mission.objective,
+      topic: mission.topic || rawObjective,
+      description: mission.description || rawObjective,
       companies: mission.companies,
       competitors: mission.competitors,
       keywords: mission.keywords,
       researchInterests: mission.researchInterests,
       preferredSources: mission.preferredSources,
-      objective: mission.objective
+      objective: rawObjective
     });
 
-    // Update mission target entities and focus areas if richer
+    // Update mission parameters if the planner discovered richer structure
     if (plan.targetEntities.length > 0) {
-      mission.targetEntities = plan.targetEntities;
+      mission.targetEntities = plan.targetEntities.map((e) => ({
+        name: e.name,
+        ticker: e.ticker,
+        role: e.role,
+        type: (e.type as any) || 'company'
+      }));
     }
     if (plan.searchVectors.length > 0) {
       mission.searchVectors = plan.searchVectors;
     }
-    if (plan.focusAreas.length > 0) {
-      mission.focusAreas = plan.focusAreas;
+    if (plan.researchAreas.length > 0) {
+      mission.focusAreas = plan.researchAreas;
     }
 
-    store.addLog('SUCCESS', `Generated search vectors for ${mission.companies?.join(', ') || mission.name}.`, 'QueryPlanner');
+    // =========================================================================
+    // LIVE RESEARCH TOOLS EXECUTION LAYER
+    // =========================================================================
+    store.addLog(
+      'INFO',
+      `STAGE 2/4: LIVE RESEARCH TOOLS — Executing tools [${plan.selectedTools.join(', ')}] with query optimization...`,
+      'EvidenceCollector'
+    );
 
-    // Stage 2: Dynamic Tool Calling & Multi-Source Collection
-    const searchTarget = `${mission.name}: ${mission.topic || mission.objective}. Companies: ${(mission.companies || []).join(', ')}. Keywords: ${(mission.keywords || []).join(', ')}`;
-    store.addLog('INFO', `Step 2/5: Executing dynamic tool planner and calling real external APIs (arXiv / GitHub)...`, 'Collector');
-    
-    const { rawItems, toolRecords, toolPlan } = await collectMultiSourceRawItems(searchTarget, plan, {
-      topic: mission.topic || mission.objective,
-      description: mission.description || mission.objective,
-      companies: mission.companies,
-      competitors: mission.competitors,
-      keywords: mission.keywords,
-      researchInterests: mission.researchInterests,
-      preferredSources: mission.preferredSources
-    });
+    const evidenceBundle = await executeEvidenceCollection(handoff);
 
-    store.addLog('INFO', `Dynamic Tool Selection: ${toolPlan.research_intent} Selected tools: [${toolPlan.selected_tools.join(', ') || 'none'}]`, 'ToolPlanner');
+    // =========================================================================
+    // AGENT 2: INTELLIGENCE ANALYST AGENT
+    // =========================================================================
+    store.addLog(
+      'INFO',
+      `STAGE 3/4: AGENT 2 (INTELLIGENCE ANALYST) — Analyzing ${evidenceBundle.totalCollected} live evidence items under Plan [${plan.planId}]...`,
+      'IntelligenceAnalystAgent'
+    );
 
-    for (const record of toolRecords) {
-      if (record.selected) {
-        if (record.status === 'success') {
-          store.addLog('SUCCESS', `Tool [${record.tool}]: Received ${record.resultCount} real external records for query "${record.query}".`, 'ToolExecutor');
-        } else if (record.status === 'no_results') {
-          store.addLog('WARNING', `Tool [${record.tool}]: Executed for query "${record.query}" — 0 matching results found.`, 'ToolExecutor');
-        } else if (record.status === 'failed') {
-          store.addLog('CRITICAL', `Tool [${record.tool}]: Failed (${record.error || 'Network error'}). Continuing with remaining sources.`, 'ToolExecutor');
+    const analystResult = await executeIntelligenceAnalystAgent(evidenceBundle, handoff, missionId);
+
+    // =========================================================================
+    // TREND RADAR & ALERT ENGINE
+    // =========================================================================
+    store.addLog(
+      'INFO',
+      `STAGE 4/4: TREND RADAR & ALERTS — Correlating cross-source signals and computing trend velocity...`,
+      'TrendRadar'
+    );
+
+    const { correlatedItems, detectedTrends, newAlerts } = correlateAndClusterItems(
+      analystResult.findings,
+      missionId,
+      {
+        missionName: mission.name,
+        code: mission.code,
+        targetEntities: plan.targetEntities,
+        searchVectors: plan.searchVectors,
+        focusAreas: plan.researchAreas,
+        queries: {
+          arxiv: plan.toolQueries.search_arxiv ? [plan.toolQueries.search_arxiv] : [],
+          patents: [],
+          news: [],
+          industry: plan.toolQueries.search_github ? [plan.toolQueries.search_github] : []
         }
-      } else {
-        store.addLog('INFO', `Tool [${record.tool}]: Not selected (Research intent did not require this tool).`, 'ToolPlanner');
       }
-    }
+    );
 
-    store.addLog('SUCCESS', `Ingested ${rawItems.length} candidate documents from live tools & active vectors.`, 'Collector');
-
-    // Stage 3 & 4: Deduplication, Relevance, and Deep Impact Analysis
-    store.addLog('INFO', `Step 3/5: Normalizing fingerprints, filtering relevance (>=60), and synthesizing actionable intelligence...`, 'Analyst');
-    const scoredItems = await analyzeAndScoreItems(rawItems, missionId, plan);
-    store.addLog('SUCCESS', `Synthesized ${scoredItems.length} actionable intelligence records with verified evidence.`, 'Analyst');
-
-    // Stage 5: Cross-Source Correlation, Trend Radar & Alerts
-    store.addLog('INFO', `Step 4/5: Building cross-source relationship graph and computing trend velocity...`, 'TrendRadar');
-    const { correlatedItems, detectedTrends, newAlerts } = correlateAndClusterItems(scoredItems, missionId, plan);
-
-    // Compute Source Usage Transparency Summary matching live tool execution records
-    const arxivRecord = toolRecords.find((r) => r.tool === 'search_arxiv');
-    const githubRecord = toolRecords.find((r) => r.tool === 'search_github');
+    // Compute Source Usage Transparency Summary based on real tool execution
+    const arxivRecord = evidenceBundle.toolExecutionRecords.find((r) => r.tool === 'search_arxiv');
+    const githubRecord = evidenceBundle.toolExecutionRecords.find((r) => r.tool === 'search_github');
 
     const sourceCounts: Record<string, number> = {};
     for (const item of correlatedItems) {
@@ -157,6 +189,36 @@ export async function runAutonomousMissionCycle(missionId: string) {
 
     mission.sourcesUsedSummary = sourcesUsedSummary;
 
+    // Build Multi-Agent Orchestration Summary
+    const orchestrationSummary: MultiAgentOrchestrationSummary = {
+      planner: {
+        planId: plan.planId,
+        intent: plan.intent,
+        intentType: plan.intentType,
+        selectedTools: plan.selectedTools,
+        toolQueries: {
+          ...(plan.toolQueries.search_arxiv ? { search_arxiv: plan.toolQueries.search_arxiv } : {}),
+          ...(plan.toolQueries.search_github ? { search_github: plan.toolQueries.search_github } : {})
+        },
+        targetEntitiesCount: plan.targetEntities.length
+      },
+      tools: {
+        executedTools: plan.selectedTools,
+        totalEvidenceReturned: evidenceBundle.totalCollected,
+        records: evidenceBundle.toolExecutionRecords
+      },
+      analyst: {
+        handoffId: handoff.handoffId,
+        analyzedEvidenceCount: analystResult.evidenceAnalyzedCount,
+        findingsGeneratedCount: analystResult.findings.length,
+        rankedImpacts: analystResult.rankedImpacts
+      },
+      orchestrationStatus: evidenceBundle.collectionErrors ? 'partial' : 'complete',
+      handoffTimestamp: handoff.timestamp
+    };
+
+    mission.lastOrchestration = orchestrationSummary;
+
     // Save to store
     store.addIntelItems(missionId, correlatedItems);
     if (detectedTrends.length > 0) {
@@ -167,26 +229,35 @@ export async function runAutonomousMissionCycle(missionId: string) {
     }
 
     const elapsedMs = Date.now() - startTime;
-    mission.meanLatencyMs = Number((elapsedMs / (scoredItems.length || 1) / 10).toFixed(1));
+    mission.meanLatencyMs = Number((elapsedMs / (correlatedItems.length || 1) / 10).toFixed(1));
     mission.lastRunAt = new Date().toISOString();
 
     if (newAlerts.length > 0) {
-      store.addLog('CRITICAL', `Step 5/5: Autonomous tracker triggered ${newAlerts.length} high-impact alerts for review.`, 'AlertEngine');
+      store.addLog(
+        'CRITICAL',
+        `Autonomous Alert Engine triggered ${newAlerts.length} high-impact alerts.`,
+        'AlertEngine'
+      );
     }
 
-    store.addLog('SYSTEM', `Autonomous intelligence cycle finished in ${(elapsedMs / 1000).toFixed(2)}s. Mean latency: ${mission.meanLatencyMs}ms.`, 'Orchestrator');
+    store.addLog(
+      'SUCCESS',
+      `============================================================\nMULTI-AGENT PIPELINE COMPLETE: ${correlatedItems.length} verified findings synthesized in ${(elapsedMs / 1000).toFixed(2)}s.\n============================================================`,
+      'MultiAgentOrchestrator'
+    );
 
     return {
       success: true,
+      orchestration: orchestrationSummary,
       itemsCount: correlatedItems.length,
       trendsCount: detectedTrends.length,
       alertsCount: newAlerts.length,
       sourcesUsedSummary,
-      toolRecords,
+      toolRecords: evidenceBundle.toolExecutionRecords,
       elapsedMs
     };
   } catch (err: any) {
-    store.addLog('CRITICAL', `Pipeline execution error: ${err.message || err}`, 'Orchestrator');
+    store.addLog('CRITICAL', `Multi-agent pipeline error: ${err.message || err}`, 'MultiAgentOrchestrator');
     throw err;
   }
 }
