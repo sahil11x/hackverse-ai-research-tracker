@@ -21,10 +21,13 @@ import {
   SourceUsageStat,
   SourceType,
   MultiAgentOrchestrationSummary,
-  ResearchContext
+  ResearchContext,
+  GraphExecutionSummary,
+  AdversarialTestConfig
 } from '../types';
 import { ResearchInputCard } from './ResearchInputCard';
 import { ResearchContextPanel } from './ResearchContextPanel';
+import { AgentGraphExecutionPanel } from './AgentGraphExecutionPanel';
 import { AiWorkingState } from './AiWorkingState';
 import { EvidenceModal } from './EvidenceModal';
 
@@ -48,6 +51,8 @@ interface IntelFeedProps {
   onToggleTracking?: () => void;
   orchestration?: MultiAgentOrchestrationSummary;
   context?: ResearchContext | null;
+  graphExecution?: GraphExecutionSummary;
+  onRunAdversarialTest?: (config?: Partial<AdversarialTestConfig>) => void;
 }
 
 export const IntelFeed: React.FC<IntelFeedProps> = ({
@@ -69,7 +74,9 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
   isWorkingScan = false,
   onToggleTracking,
   orchestration,
-  context = null
+  context = null,
+  graphExecution,
+  onRunAdversarialTest
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
@@ -272,7 +279,14 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
           <AiWorkingState currentTopic={activeMissionTopic || activeMissionName} />
         ) : (
           <>
-            {/* 3. TASK 4: MISSION CONTEXT & WORKING MEMORY PANEL */}
+            {/* 3. TASK 5: AUTONOMOUS GRAPH ORCHESTRATION PANEL */}
+            <AgentGraphExecutionPanel
+              graphExecution={graphExecution}
+              onRunAdversarialTest={onRunAdversarialTest}
+              isLoading={isWorkingScan}
+            />
+
+            {/* 4. TASK 4: MISSION CONTEXT & WORKING MEMORY PANEL */}
             {context && (
               <ResearchContextPanel
                 context={context}

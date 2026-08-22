@@ -212,9 +212,15 @@ async function startServer() {
   // Run autonomous cycle or contextual research step for a mission
   app.post('/api/missions/:id/run', async (req, res) => {
     const { id } = req.params;
-    const { query, isFollowUp, runId } = req.body || {};
+    const { query, isFollowUp, runId, adversarialConfig, initialBudget } = req.body || {};
     try {
-      const result = await runAutonomousMissionCycle(id, { query, isFollowUp, runId });
+      const result = await runAutonomousMissionCycle(id, {
+        query,
+        isFollowUp,
+        runId,
+        adversarialConfig,
+        initialBudget
+      });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Execution error' });
@@ -224,15 +230,59 @@ async function startServer() {
   // Direct contextual research execution endpoint
   app.post('/api/missions/:id/research', async (req, res) => {
     const { id } = req.params;
-    const { query, isFollowUp, runId } = req.body || {};
+    const { query, isFollowUp, runId, adversarialConfig, initialBudget } = req.body || {};
     if (!query || typeof query !== 'string' || !query.trim()) {
       return res.status(400).json({ error: 'Research query is required' });
     }
     try {
-      const result = await runAutonomousMissionCycle(id, { query: query.trim(), isFollowUp, runId });
+      const result = await runAutonomousMissionCycle(id, {
+        query: query.trim(),
+        isFollowUp,
+        runId,
+        adversarialConfig,
+        initialBudget
+      });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Execution error' });
+    }
+  });
+
+  // Developer / Demo Adversarial Live Test Mode Endpoint
+  app.post('/api/research/adversarial-test', async (req, res) => {
+    try {
+      const {
+        missionId,
+        query = 'Compare recent transformer inference optimization research with open-source implementations and identify the most credible performance improvement.',
+        failTool = 'search_github',
+        injectConflictingClaims = true,
+        forceLowInitialConfidence = true,
+        tightBudget = false
+      } = req.body || {};
+
+      const targetMissionId = missionId || store.getActiveMissionId();
+      store.addLog(
+        'WARNING',
+        `[ADVERSARIAL TEST] Initiating Controlled Adversarial Live Test on mission [${targetMissionId}]. Objective: "${query}"`,
+        'AdversarialTesting'
+      );
+
+      const result = await runAutonomousMissionCycle(targetMissionId, {
+        query,
+        adversarialConfig: {
+          enabled: true,
+          failTool,
+          injectConflictingClaims,
+          forceLowInitialConfidence,
+          tightBudget
+        },
+        initialBudget: tightBudget ? { remainingBudget: 12, maxToolCalls: 2 } : undefined
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      console.error('Adversarial test error:', err);
+      res.status(500).json({ error: err.message || 'Adversarial execution error' });
     }
   });
 
@@ -381,6 +431,20 @@ ${trends.map((t) => `- **${t.topic}** (${t.changePercent} growth): ${t.summary} 
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Hackverse Intel Tracker running on http://localhost:${PORT}`);
+    // Run adversarial verification cycle to pre-populate live graph execution state
+    runAutonomousMissionCycle('mission-semicon-01', {
+      query:
+        'Compare recent transformer inference optimization research with open-source implementations and identify the most credible performance improvement.',
+      adversarialConfig: {
+        enabled: true,
+        failTool: 'search_github',
+        injectConflictingClaims: true,
+        forceLowInitialConfidence: false,
+        tightBudget: false
+      }
+    }).catch((err) => {
+      console.error('Initial adversarial cycle error:', err);
+    });
   });
 }
 

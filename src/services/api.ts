@@ -120,11 +120,32 @@ export const api = {
     return res.json();
   },
 
-  async runResearchStep(missionId: string, query: string, isFollowUp = false): Promise<ResearchRunResult> {
+  async runResearchStep(
+    missionId: string,
+    query: string,
+    isFollowUp = false,
+    options?: { adversarialConfig?: any; initialBudget?: any }
+  ): Promise<ResearchRunResult> {
     const res = await fetch(`/api/missions/${missionId}/research`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, isFollowUp })
+      body: JSON.stringify({ query, isFollowUp, ...options })
+    });
+    return res.json();
+  },
+
+  async runAdversarialTest(params?: {
+    missionId?: string;
+    query?: string;
+    failTool?: string;
+    injectConflictingClaims?: boolean;
+    forceLowInitialConfidence?: boolean;
+    tightBudget?: boolean;
+  }): Promise<ResearchRunResult> {
+    const res = await fetch('/api/research/adversarial-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params || {})
     });
     return res.json();
   },

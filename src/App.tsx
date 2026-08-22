@@ -6,7 +6,9 @@ import {
   Mission,
   SystemLog,
   TrendSignal,
-  ResearchContext
+  ResearchContext,
+  GraphExecutionSummary,
+  AdversarialTestConfig
 } from './types';
 import { Header } from './components/Header';
 import { SidebarLeft } from './components/SidebarLeft';
@@ -28,6 +30,7 @@ export default function App() {
   const [alerts, setAlerts] = useState<IntelAlert[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [researchContext, setResearchContext] = useState<ResearchContext | null>(null);
+  const [graphExecution, setGraphExecution] = useState<GraphExecutionSummary | null>(null);
 
   // Filters & State
   const [minRelevanceFilter, setMinRelevanceFilter] = useState<number | null>(null);
@@ -127,6 +130,9 @@ export default function App() {
       const runRes = await api.runAutonomousCycle(targetMissionId);
       if (runRes.context) {
         setResearchContext(runRes.context);
+      }
+      if (runRes.graphExecution) {
+        setGraphExecution(runRes.graphExecution);
       }
 
       // Reload mission list for updated stats
@@ -285,6 +291,9 @@ export default function App() {
         if (runRes.context) {
           setResearchContext(runRes.context);
         }
+        if (runRes.graphExecution) {
+          setGraphExecution(runRes.graphExecution);
+        }
 
         const { missions: updatedMissions } = await api.getMissions();
         setMissions(updatedMissions);
@@ -324,10 +333,47 @@ export default function App() {
       if (runRes.context) {
         setResearchContext(runRes.context);
       }
+      if (runRes.graphExecution) {
+        setGraphExecution(runRes.graphExecution);
+      }
 
       await loadActiveMissionData(newMission.id);
     } catch (err) {
       console.error('Failed to run autonomous research:', err);
+    } finally {
+      setIsRunningScan(false);
+    }
+  };
+
+  // Run Controlled Adversarial Live Test Mode
+  const handleRunAdversarialTest = async (config?: Partial<AdversarialTestConfig>) => {
+    if (!activeMission || isRunningScan) return;
+    setIsRunningScan(true);
+    try {
+      const runRes = await api.runAdversarialTest({
+        missionId: activeMission.id,
+        query: activeMission.objective || activeMission.topic || 'Compare recent transformer inference optimization research with open-source implementations and identify the most credible performance improvement.',
+        failTool: config?.failTool || 'search_github',
+        injectConflictingClaims: config?.injectConflictingClaims ?? true,
+        forceLowInitialConfidence: config?.forceLowInitialConfidence ?? false,
+        tightBudget: config?.tightBudget ?? false
+      });
+
+      if (runRes.context) {
+        setResearchContext(runRes.context);
+      }
+      if (runRes.graphExecution) {
+        setGraphExecution(runRes.graphExecution);
+      }
+
+      const { missions: updatedMissions } = await api.getMissions();
+      setMissions(updatedMissions);
+      const refreshed = updatedMissions.find((m) => m.id === activeMission.id);
+      if (refreshed) setActiveMission(refreshed);
+
+      await loadActiveMissionData(activeMission.id);
+    } catch (err) {
+      console.error('Adversarial test error:', err);
     } finally {
       setIsRunningScan(false);
     }
@@ -383,6 +429,8 @@ export default function App() {
           onToggleTracking={() => activeMission && handleToggleMissionStatus(activeMission.id)}
           orchestration={activeMission?.lastOrchestration}
           context={researchContext}
+          graphExecution={graphExecution || undefined}
+          onRunAdversarialTest={handleRunAdversarialTest}
         />
 
         {/* Right Sidebar: Trend Detection Radar & Live Alerts */}

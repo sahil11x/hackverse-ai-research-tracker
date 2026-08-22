@@ -216,6 +216,7 @@ export interface AnalystResult {
   handoffId: string;
   evidenceAnalyzedCount: number;
   findings: IntelItem[];
+  rejectedFindings?: RejectedFinding[];
   strategicSummary: string;
   rankedImpacts: {
     criticalCount: number;
@@ -350,5 +351,252 @@ export interface ResearchRunResult {
   rejectedFindings: RejectedFinding[];
   context: ResearchContext;
   elapsedMs: number;
+  graphExecution?: GraphExecutionSummary;
+}
+
+// ==========================================
+// TASK 5: AUTONOMOUS GRAPH ORCHESTRATION TYPES
+// ==========================================
+
+export type GraphNodeName =
+  | 'ResearchPlanner'
+  | 'ResourceEvaluator'
+  | 'ParallelEvidenceCollector'
+  | 'EvidenceValidator'
+  | 'ConflictResolution'
+  | 'IntelligenceAnalyst'
+  | 'SelfEvaluation'
+  | 'Replanner'
+  | 'Completion';
+
+export type GraphExecutionStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'RECOVERED'
+  | 'NEEDS_REVIEW'
+  | 'HALTED_LOOP'
+  | 'BUDGET_EXHAUSTED';
+
+export interface HypothesisItem {
+  id: string;
+  hypothesis: string;
+  supportingEvidence: string[];
+  contradictingEvidence: string[];
+  verificationStatus: 'SUPPORTED' | 'PARTIALLY_SUPPORTED' | 'CONTRADICTED' | 'UNVERIFIED';
+  confidence: number; // 0 - 1
+  rationale?: string;
+}
+
+export interface ConflictingEvidenceItem {
+  id: string;
+  claimA: string;
+  claimB: string;
+  sourcesA: string[];
+  sourcesB: string[];
+  sourceReliability: {
+    sourcesA: 'HIGH' | 'MEDIUM' | 'LOW';
+    sourcesB: 'HIGH' | 'MEDIUM' | 'LOW';
+  };
+  evidenceStrength: number; // 0 - 1
+  conflictType: 'factual' | 'interpretation' | 'methodology' | 'metric_discrepancy';
+  resolution: string;
+  confidence: number; // 0 - 1
+  unresolved: boolean;
+}
+
+export interface ResourceBudget {
+  maxToolCalls: number;
+  maxParallelCalls: number;
+  maxRetries: number;
+  maxReplans: number;
+  estimatedCost: number; // in abstract compute units / ms
+  remainingBudget: number; // units remaining
+  toolCallsMade: number;
+  parallelCallsMade: number;
+  retriesUsed: number;
+  replansUsed: number;
+}
+
+export interface ToolFailureRecord {
+  tool: ToolName;
+  query: string;
+  error: string;
+  category: 'NETWORK' | 'RATE_LIMIT' | 'TIMEOUT' | 'SCHEMA' | 'INJECTED_ADVERSARIAL' | 'EMPTY_RESULTS';
+  timestamp: string;
+  durationMs: number;
+}
+
+export interface FallbackAttemptRecord {
+  id: string;
+  fromTool: ToolName;
+  toTool: ToolName;
+  reason: string;
+  successful: boolean;
+  timestamp: string;
+  resultsRetrieved: number;
+}
+
+export interface GraphCheckpoint {
+  id: string;
+  checkpointNumber: number;
+  node: GraphNodeName;
+  timestamp: string;
+  summary: string;
+  evidenceCount: number;
+  findingsCount: number;
+  confidence: number;
+  uncertainty: number;
+  stateSnapshot: {
+    currentObjective: string;
+    selectedTools: ToolName[];
+    completedNodes: string[];
+    replanCount: number;
+    budgetRemaining: number;
+  };
+}
+
+export interface LoopDetectionState {
+  executionSignatures: string[];
+  loopDetected: boolean;
+  loopReason?: string;
+  haltedEarly: boolean;
+  maxThreshold: number;
+}
+
+export interface SelfEvaluationResult {
+  objectiveSatisfied: boolean;
+  evidenceSufficient: boolean;
+  confidence: number; // 0 - 1
+  uncertainty: number; // 0 - 1
+  unresolvedIssues: string[];
+  unsupportedClaims: string[];
+  recommendedNextAction: 'COMPLETE' | 'REPLAN_MORE_EVIDENCE' | 'FALLBACK_TOOL' | 'RESOLVE_CONFLICT';
+  evaluationSummary: string;
+}
+
+export interface ReplanRecord {
+  replanNumber: number;
+  timestamp: string;
+  reason: string;
+  previousTools: ToolName[];
+  newTools: ToolName[];
+  newSubtasks: string[];
+  reformulatedQueries: Record<string, string>;
+  hypothesesAdded: string[];
+}
+
+export interface GraphFinalDecision {
+  objectiveSatisfied: boolean;
+  confidence: number; // 0 - 1
+  evidenceStrength: number; // 0 - 1
+  uncertainty: number; // 0 - 1
+  decisionReason: string;
+  finalStatus: GraphExecutionStatus;
+  summary: string;
+}
+
+export interface ParallelBranchRecord {
+  branchId: string;
+  tool: ToolName;
+  startedAt: string;
+  completedAt?: string;
+  durationMs: number;
+  resultCount: number;
+  status: 'started' | 'completed' | 'failed';
+  errorCategory?: string;
+  error?: string;
+}
+
+export interface GraphNodeExecutionRecord {
+  nodeName: GraphNodeName;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  status: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+  inputSummary?: string;
+  outputSummary?: string;
+  confidence?: number;
+  uncertainty?: number;
+}
+
+export interface GraphExecutionSummary {
+  framework: 'AgentGraph' | 'ResearchGraph' | 'LangGraph';
+  runId: string;
+  missionId: string;
+  executionStatus: GraphExecutionStatus;
+  routeTaken: GraphNodeName[];
+  currentNode?: GraphNodeName;
+  parallelBranches: ParallelBranchRecord[];
+  toolFailures: ToolFailureRecord[];
+  fallbacks: FallbackAttemptRecord[];
+  conflicts: ConflictingEvidenceItem[];
+  replans: ReplanRecord[];
+  checkpoints: GraphCheckpoint[];
+  loopDetection: {
+    loopDetected: boolean;
+    signaturesCount: number;
+    haltedEarly: boolean;
+    reason?: string;
+  };
+  resourceBudget: ResourceBudget;
+  selfEvaluation?: SelfEvaluationResult;
+  finalDecision?: GraphFinalDecision;
+  nodeExecutions: GraphNodeExecutionRecord[];
+  elapsedTotalMs: number;
+  adversarialModeActive?: boolean;
+}
+
+export interface AdversarialTestConfig {
+  enabled: boolean;
+  failTool?: ToolName;
+  delayToolMs?: number;
+  injectConflictingClaims?: boolean;
+  forceLowInitialConfidence?: boolean;
+  injectEmptyResults?: boolean;
+  forceReplanningLoopTest?: boolean;
+  tightBudget?: boolean;
+}
+
+export interface GraphState {
+  runId: string;
+  missionId: string;
+  originalObjective: string;
+  currentObjective: string;
+  researchContext: ResearchContext;
+  researchPlan?: ResearchPlan;
+  detectedIntent: 'comparative' | 'academic_only' | 'opensource_only' | 'exploratory';
+  targetEntities: Array<{ name: string; ticker?: string; role: string; type?: string }>;
+  hypotheses: HypothesisItem[];
+  selectedTools: ToolName[];
+  availableTools: ToolName[];
+  evidenceBundle?: EvidenceBundle;
+  findings: IntelItem[];
+  conflictingEvidence: ConflictingEvidenceItem[];
+  rejectedFindings: RejectedFinding[];
+  uncertainty: number; // 0 - 1
+  confidence: number; // 0 - 1
+  resourceBudget: ResourceBudget;
+  toolFailures: ToolFailureRecord[];
+  fallbackAttempts: FallbackAttemptRecord[];
+  checkpoints: GraphCheckpoint[];
+  completedNodes: GraphNodeName[];
+  failedNodes: GraphNodeName[];
+  retryCount: number;
+  replanCount: number;
+  replans: ReplanRecord[];
+  loopDetectionState: LoopDetectionState;
+  finalDecision?: GraphFinalDecision;
+  executionStatus: GraphExecutionStatus;
+  
+  // Internal Graph Metadata
+  routeTaken: GraphNodeName[];
+  parallelBranches: ParallelBranchRecord[];
+  nodeExecutions: GraphNodeExecutionRecord[];
+  selfEvaluation?: SelfEvaluationResult;
+  adversarialConfig?: AdversarialTestConfig;
+  handoff?: AgentHandoff;
+  analystResult?: AnalystResult;
+  strategicSummary?: string;
 }
 
