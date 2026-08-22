@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { CategoryType, IntelItem, PriorityLevel } from '../../src/types';
+import { CategoryType, IntelItem, PriorityLevel, ImpactLevel, EvidenceLink, SourceType } from '../../src/types';
 import { RawDiscoveredItem } from './fetcher';
 import { PlannedQueryPlan } from './queryPlanner';
 
@@ -31,7 +31,7 @@ export async function analyzeAndScoreItems(
     }
   }
 
-  // 2. AI Deep Analysis & Scoring Batch
+  // 2. AI Deep Analysis & Actionable Intelligence Extraction
   if (apiKey && uniqueRaw.length > 0) {
     try {
       const ai = new GoogleGenAI({
@@ -44,22 +44,28 @@ export async function analyzeAndScoreItems(
       });
 
       const prompt = `You are a Senior Strategic Intelligence Analyst.
-Mission Target Entities: ${plan.targetEntities.map((e) => e.name).join(', ')}
-Mission Focus Areas: ${plan.focusAreas.join(', ')}
+Analyze the following collected intelligence items for the mission:
+Target Entities: ${plan.targetEntities.map((e) => e.name).join(', ') || 'General technological research'}
+Focus Areas: ${plan.focusAreas.join(', ')}
 
-Analyze the following collected items. For each item:
-1. Calculate Relevance Score (0-100): How closely does this match the core entities and technological focus?
-2. Calculate Impact Score (0-100): Assess technical breakthrough, competitor threat level, and commercial impact.
-3. Assign Strategic Priority: CRITICAL (>=85), STRATEGIC (>=75), HIGH (>=65), TREND (>=50), or MEDIUM.
-4. Assign Category: hardware, architecture, patent, business, benchmark, or software.
-5. Provide a concise, highly actionable 2-3 sentence executive intelligence summary.
-6. Extract 2-3 bullet point strategic implications.
-7. Identify mentioned entities from the target list.
+For each raw item, extract structured Actionable Intelligence:
+1. relevanceScore (0-100): How closely does this match the core topic and entities?
+2. impactScore (0-100): Breakthrough level, competitive urgency, or technical significance.
+3. impact: One of "Low", "Medium", "High", "Critical".
+4. strategicPriority: CRITICAL (>=85), STRATEGIC (>=75), HIGH (>=65), TREND (>=50), or MEDIUM.
+5. category: hardware, architecture, patent, business, benchmark, or software.
+6. whatChanged: Short, 1-2 sentence concise explanation of the factual technological or market change. (NO vague fluff).
+7. whyItMatters: Short, 1-2 sentence business/technical significance or competitive implication.
+8. recommendedAction: A direct, realistic, actionable recommendation (e.g. "Evaluate prototype within 2 weeks", "Audit patent claims for infringement risk", or "No clear action recommended yet." if evidence does not support action).
+9. timeHorizon: Urgency time horizon (e.g. "Within 48 hours", "Within 2 weeks", "This quarter", or "Monitor continuously").
+10. supportingReason: Why this specific document supports the finding.
+11. keyImplications: 2-3 concise bullet points.
+12. mentionedEntities: Array of entities mentioned in the text (empty array if none).
 
 Raw Items:
-${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
+${JSON.stringify(uniqueRaw.slice(0, 8), null, 2)}`;
 
-      const response = await ai.models.generateContent({
+      const geminiPromise = ai.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
@@ -72,6 +78,10 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
                 itemIndex: { type: Type.INTEGER },
                 relevanceScore: { type: Type.INTEGER },
                 impactScore: { type: Type.INTEGER },
+                impact: {
+                  type: Type.STRING,
+                  enum: ['Low', 'Medium', 'High', 'Critical']
+                },
                 strategicPriority: {
                   type: Type.STRING,
                   enum: ['CRITICAL', 'STRATEGIC', 'HIGH', 'MEDIUM', 'TREND', 'LOW']
@@ -80,7 +90,11 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
                   type: Type.STRING,
                   enum: ['hardware', 'architecture', 'patent', 'business', 'benchmark', 'software']
                 },
-                summary: { type: Type.STRING },
+                whatChanged: { type: Type.STRING },
+                whyItMatters: { type: Type.STRING },
+                recommendedAction: { type: Type.STRING },
+                timeHorizon: { type: Type.STRING },
+                supportingReason: { type: Type.STRING },
                 keyImplications: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING }
@@ -91,17 +105,48 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
                 },
                 confidence: { type: Type.NUMBER }
               },
-              required: ['itemIndex', 'relevanceScore', 'impactScore', 'strategicPriority', 'category', 'summary', 'keyImplications', 'mentionedEntities']
+              required: [
+                'itemIndex',
+                'relevanceScore',
+                'impactScore',
+                'impact',
+                'strategicPriority',
+                'category',
+                'whatChanged',
+                'whyItMatters',
+                'recommendedAction',
+                'timeHorizon',
+                'keyImplications'
+              ]
             }
           }
         }
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini analysis timeout')), 6000)
+      );
+
+      const response = await Promise.race([geminiPromise, timeoutPromise]);
+
       if (response.text) {
         const enrichedList = JSON.parse(response.text.trim());
         for (const enr of enrichedList) {
           const raw = uniqueRaw[enr.itemIndex] || uniqueRaw[0];
-          if (raw && enr.relevanceScore >= 60) {
+          if (raw && enr.relevanceScore >= 50) {
+            const evidenceLinks: EvidenceLink[] = [
+              {
+                source: raw.source,
+                sourceLabel: raw.sourceLabel,
+                title: raw.title,
+                url: raw.sourceUrl,
+                date: raw.publishedAt,
+                excerpt: raw.evidenceSnippet || raw.rawContent.substring(0, 160) + '...',
+                supportingReason: enr.supportingReason || `Direct factual reporting from ${raw.sourceLabel}`,
+                evidenceType: raw.source === 'patent' || raw.source === 'sec_filing' ? 'primary' : raw.source === 'arxiv' ? 'research' : raw.source === 'social_media' ? 'social' : 'secondary'
+              }
+            ];
+
             analyzed.push({
               id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
               missionId,
@@ -116,12 +161,22 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
               impactScore: Math.min(100, Math.max(10, enr.impactScore)),
               strategicPriority: enr.strategicPriority as PriorityLevel,
               category: enr.category as CategoryType,
-              summary: enr.summary,
-              keyImplications: enr.keyImplications,
-              mentionedEntities: enr.mentionedEntities,
+              summary: `${enr.whatChanged} ${enr.whyItMatters}`,
+              keyImplications: enr.keyImplications || [],
+              mentionedEntities: enr.mentionedEntities || [],
               relatedItemIds: [],
               evidenceSnippet: raw.evidenceSnippet,
-              confidence: enr.confidence || 0.92
+              confidence: enr.confidence || 0.94,
+
+              // Actionable Intelligence Model
+              whatChanged: enr.whatChanged,
+              whyItMatters: enr.whyItMatters,
+              impact: (enr.impact || (enr.impactScore >= 85 ? 'Critical' : enr.impactScore >= 70 ? 'High' : enr.impactScore >= 50 ? 'Medium' : 'Low')) as ImpactLevel,
+              recommendedAction: enr.recommendedAction || 'Further evaluation recommended.',
+              timeHorizon: enr.timeHorizon || (enr.impactScore >= 85 ? 'Within 48 hours' : enr.impactScore >= 70 ? 'Within 2 weeks' : enr.impactScore >= 50 ? 'This quarter' : 'Monitor continuously'),
+              evidenceCount: 1,
+              sourceTypes: [raw.source],
+              evidenceLinks
             });
           }
         }
@@ -153,9 +208,17 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
       imp = Math.min(96, imp);
 
       let prio: PriorityLevel = 'MEDIUM';
-      if (imp >= 85) prio = 'CRITICAL';
-      else if (imp >= 75) prio = 'STRATEGIC';
-      else if (imp >= 65) prio = 'HIGH';
+      let impactLevel: ImpactLevel = 'Medium';
+      if (imp >= 85) {
+        prio = 'CRITICAL';
+        impactLevel = 'Critical';
+      } else if (imp >= 75) {
+        prio = 'STRATEGIC';
+        impactLevel = 'High';
+      } else if (imp >= 65) {
+        prio = 'HIGH';
+        impactLevel = 'High';
+      }
 
       let cat: CategoryType = 'hardware';
       if (raw.source === 'patent') cat = 'patent';
@@ -166,6 +229,24 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
       const foundEntities = plan.targetEntities
         .filter((e) => lower.includes(e.name.toLowerCase()) || (e.ticker && lower.includes(e.ticker.toLowerCase())))
         .map((e) => e.name);
+
+      const whatChanged = `Discovered new development: ${raw.title}.`;
+      const whyItMatters = `Indicates shifts in ${cat} technology with potential impact on technical performance and benchmarks.`;
+      const recommendedAction = imp >= 80 ? 'Review technical specification and assess architectural impact within 2 weeks.' : 'Further evaluation recommended.';
+      const timeHorizon = imp >= 85 ? 'Within 48 hours' : imp >= 70 ? 'Within 2 weeks' : imp >= 50 ? 'This quarter' : 'Monitor continuously';
+
+      const evidenceLinks: EvidenceLink[] = [
+        {
+          source: raw.source,
+          sourceLabel: raw.sourceLabel,
+          title: raw.title,
+          url: raw.sourceUrl,
+          date: raw.publishedAt,
+          excerpt: raw.evidenceSnippet || raw.rawContent.substring(0, 160) + '...',
+          supportingReason: `Direct reporting from ${raw.sourceLabel}`,
+          evidenceType: raw.source === 'patent' || raw.source === 'sec_filing' ? 'primary' : raw.source === 'arxiv' ? 'research' : raw.source === 'social_media' ? 'social' : 'secondary'
+        }
+      ];
 
       analyzed.push({
         id: `item-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
@@ -181,16 +262,25 @@ ${JSON.stringify(uniqueRaw.slice(0, 6), null, 2)}`;
         impactScore: imp,
         strategicPriority: prio,
         category: cat,
-        summary: `Strategic discovery: ${raw.title}. Cross-source inspection indicates significant development in ${cat} technology affecting target competitors.`,
+        summary: `${whatChanged} ${whyItMatters}`,
         keyImplications: [
-          `Potential performance or commercial acceleration for ${foundEntities[0] || 'target entity'}`,
-          `Competitive pressure on alternate hardware stacks and interconnects`,
-          `Evidence verified via ${raw.sourceLabel}`
+          `Potential performance or commercial implication for ${foundEntities[0] || 'target domain'}`,
+          `Competitive tracking verified via ${raw.sourceLabel}`
         ],
-        mentionedEntities: foundEntities.length > 0 ? foundEntities : [plan.targetEntities[0]?.name || 'Target Entity'],
+        mentionedEntities: foundEntities,
         relatedItemIds: [],
         evidenceSnippet: raw.evidenceSnippet,
-        confidence: 0.9
+        confidence: 0.9,
+
+        // Actionable Intelligence Model
+        whatChanged,
+        whyItMatters,
+        impact: impactLevel,
+        recommendedAction,
+        timeHorizon,
+        evidenceCount: 1,
+        sourceTypes: [raw.source],
+        evidenceLinks
       });
     }
   }

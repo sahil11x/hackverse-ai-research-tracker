@@ -233,21 +233,25 @@ export const ResearchAssistantModal: React.FC<ResearchAssistantModalProps> = ({
 
                   <div>
                     <span className="text-[10px] font-mono uppercase text-[#71717A] block">Entities:</span>
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      {structuredResult.companies.map((company, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 bg-[#1C1C1F] text-[#00FF9C] border border-[#00FF9C]/30 rounded text-xs font-mono font-medium"
-                        >
-                          {company}
-                        </span>
-                      ))}
-                    </div>
+                    {structuredResult.companies && structuredResult.companies.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {structuredResult.companies.map((company, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 bg-[#1C1C1F] text-[#00FF9C] border border-[#00FF9C]/30 rounded text-xs font-mono font-medium"
+                          >
+                            {company}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#71717A] italic mt-0.5">None identified</p>
+                    )}
                   </div>
 
-                  {structuredResult.competitors && structuredResult.competitors.length > 0 && (
-                    <div>
-                      <span className="text-[10px] font-mono uppercase text-[#71717A] block">Direct Competitors:</span>
+                  <div>
+                    <span className="text-[10px] font-mono uppercase text-[#71717A] block">Competitors:</span>
+                    {structuredResult.competitors && structuredResult.competitors.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {structuredResult.competitors.map((comp, idx) => (
                           <span
@@ -258,14 +262,32 @@ export const ResearchAssistantModal: React.FC<ResearchAssistantModalProps> = ({
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-xs text-[#71717A] italic mt-0.5">None identified</p>
+                    )}
+                  </div>
 
                   <div>
                     <span className="text-[10px] font-mono uppercase text-[#71717A] block">Research Areas:</span>
                     <p className="text-[#D4D4D8] mt-0.5">
-                      {structuredResult.researchAreas.join(', ')}
+                      {structuredResult.researchAreas && structuredResult.researchAreas.length > 0
+                        ? structuredResult.researchAreas.join(', ')
+                        : 'General research'}
                     </p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-mono uppercase text-[#71717A] block">Configured Sources:</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {(structuredResult.preferredSources || ['arxiv', 'patent', 'news', 'sec_filing', 'social_media', 'github']).map((src, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-0.5 bg-[#18181B] text-[#E4E4E7] border border-[#27272A] rounded text-[11px] font-mono uppercase"
+                        >
+                          {src.replace('_', ' ')}
+                        </span>
+                      ))}
+                    </div>
                   </div>
 
                   <div>

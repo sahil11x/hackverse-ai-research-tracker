@@ -43,7 +43,15 @@ class IntelStore {
       lastRunAt: new Date().toISOString(),
       totalSignalsScanned: 1204,
       filteredInsightsCount: 14,
-      meanLatencyMs: 7.4
+      meanLatencyMs: 7.4,
+      sourcesUsedSummary: [
+        { source: 'arxiv', label: 'ArXiv', status: 'used', count: 1 },
+        { source: 'patent', label: 'Patents', status: 'used', count: 1 },
+        { source: 'news', label: 'Tech News', status: 'used', count: 1 },
+        { source: 'sec_filing', label: 'SEC Filings', status: 'used', count: 1 },
+        { source: 'social_media', label: 'Social Media', status: 'not_used', count: 0 },
+        { source: 'github', label: 'GitHub', status: 'used', count: 1 }
+      ]
     };
 
     // Mission 2: Quantum Computing & Topological Qubits
@@ -73,7 +81,15 @@ class IntelStore {
       lastRunAt: new Date().toISOString(),
       totalSignalsScanned: 680,
       filteredInsightsCount: 8,
-      meanLatencyMs: 8.1
+      meanLatencyMs: 8.1,
+      sourcesUsedSummary: [
+        { source: 'arxiv', label: 'ArXiv', status: 'used', count: 0 },
+        { source: 'patent', label: 'Patents', status: 'not_used', count: 0 },
+        { source: 'news', label: 'Tech News', status: 'used', count: 0 },
+        { source: 'sec_filing', label: 'SEC Filings', status: 'not_required', count: 0 },
+        { source: 'social_media', label: 'Social Media', status: 'not_used', count: 0 },
+        { source: 'github', label: 'GitHub', status: 'not_required', count: 0 }
+      ]
     };
 
     this.missions.set(m1.id, m1);
@@ -104,7 +120,36 @@ class IntelStore {
         mentionedEntities: ['NVIDIA Corp.', 'TSMC'],
         relatedItemIds: ['item-102', 'item-104'],
         evidenceSnippet: 'Supply chain confirmation from TSMC Fab 18 packaging lines showing yield crossing 88% on revised 4NP reticle masks.',
-        confidence: 0.96
+        confidence: 0.96,
+        whatChanged: 'TSMC resolved packaging bottlenecks on the CoWoS-L bridge for NVIDIA B200 GPUs, boosting wafer yield by 14.8%.',
+        whyItMatters: 'Unlocks Q3 hyperscaler shipments for DGX SuperPODs and expands liquid-cooled rack compute availability.',
+        impact: 'Critical',
+        recommendedAction: 'Adjust quarterly GPU capacity forecast and audit liquid cooling facility readiness within 2 weeks.',
+        timeHorizon: 'Within 2 weeks',
+        evidenceCount: 2,
+        sourceTypes: ['news', 'patent'],
+        evidenceLinks: [
+          {
+            source: 'news',
+            sourceLabel: 'Reuters Tech + SemiAnalysis',
+            title: 'NVIDIA B200 Blackwell Yield Analysis - TSMC 4NP Substrate Shift',
+            url: 'https://www.reuters.com/technology/nvidia-blackwell-packaging-advances-2026',
+            date: '2026-08-21',
+            excerpt: 'Supply chain confirmation from TSMC Fab 18 packaging lines showing yield crossing 88% on revised 4NP reticle masks.',
+            supportingReason: 'Direct supply-chain telemetry from packaging facilities confirming yield resolution.',
+            evidenceType: 'secondary'
+          },
+          {
+            source: 'patent',
+            sourceLabel: 'USPTO Patent #11,948,203',
+            title: 'Microfluidic Embedded Cooling for 3D Chiplets',
+            url: 'https://patents.google.com/patent/US202601948203A1/en',
+            date: '2026-08-20',
+            excerpt: 'Direct silicon etching of cooling channels between compute die and HBM stacks.',
+            supportingReason: 'Official patent specification establishing structural thermal substrate revisions.',
+            evidenceType: 'primary'
+          }
+        ]
       },
       {
         id: 'item-102',
@@ -129,7 +174,26 @@ class IntelStore {
         mentionedEntities: ['AMD', 'NVIDIA Corp.'],
         relatedItemIds: ['item-101'],
         evidenceSnippet: 'Open-source commit logs verify unified FlashAttention-3 GEMM kernels written in Triton with native CDNA3/CDNA4 assembly emission.',
-        confidence: 0.92
+        confidence: 0.92,
+        whatChanged: 'ROCm 6.4 released with native FlashAttention-3 and FP8 GEMM kernels matching CUDA 12.8 throughput on MI300X/MI350.',
+        whyItMatters: 'Reduces switching costs for open-weights transformer inference by 1.28x tokens-per-dollar.',
+        impact: 'High',
+        recommendedAction: 'Benchmark Llama-3.3 on MI300X/MI350 test instances against H100 cost baselines.',
+        timeHorizon: 'Within 2 weeks',
+        evidenceCount: 1,
+        sourceTypes: ['github', 'news'],
+        evidenceLinks: [
+          {
+            source: 'github',
+            sourceLabel: 'GitHub ROCm Releases',
+            title: 'ROCm 6.4 Release Tag & Triton Kernels',
+            url: 'https://github.com/ROCm/ROCm/releases/tag/v6.4.0',
+            date: '2026-08-21',
+            excerpt: 'Commit logs verify unified FlashAttention-3 GEMM kernels written in Triton with native CDNA assembly.',
+            supportingReason: 'Open-source commit repository verifying direct FlashAttention-3 implementation.',
+            evidenceType: 'primary'
+          }
+        ]
       },
       {
         id: 'item-103',
@@ -154,7 +218,26 @@ class IntelStore {
         mentionedEntities: ['Google / Alphabet'],
         relatedItemIds: ['item-104'],
         evidenceSnippet: 'Peer-reviewed hardware telemetry measured 98.4% bisection bandwidth utilization during 405B parameter model training runs.',
-        confidence: 0.95
+        confidence: 0.95,
+        whatChanged: 'Google deployed Optical Circuit Switching across 16,384 TPU v6 pods with dynamic sub-12ms topology reconfiguration.',
+        whyItMatters: 'Reduces cluster switching power by 40% and bypasses electrical copper reach limits for ultra-large model training.',
+        impact: 'High',
+        recommendedAction: 'Evaluate optical fabric architectures for next-generation AI datacenter cluster networking.',
+        timeHorizon: 'This quarter',
+        evidenceCount: 1,
+        sourceTypes: ['arxiv'],
+        evidenceLinks: [
+          {
+            source: 'arxiv',
+            sourceLabel: 'ArXiv Preprint cs.AR #2608.09421',
+            title: 'Optical Circuit Switching for 16K Accelerator Fabrics',
+            url: 'https://arxiv.org/abs/2408.09421',
+            date: '2026-08-21',
+            excerpt: 'Peer-reviewed telemetry showing 98.4% bisection bandwidth during 405B model training.',
+            supportingReason: 'Peer-reviewed empirical benchmark data from 16K-node production clusters.',
+            evidenceType: 'research'
+          }
+        ]
       },
       {
         id: 'item-104',
@@ -179,7 +262,26 @@ class IntelStore {
         mentionedEntities: ['NVIDIA Corp.'],
         relatedItemIds: ['item-101', 'item-103'],
         evidenceSnippet: 'Cross-sectional SEM micrographs and thermodynamic simulation curves show 38% reduction in junction-to-fluid thermal resistance.',
-        confidence: 0.89
+        confidence: 0.89,
+        whatChanged: 'NVIDIA patented in-silicon etched helical cooling channels for 1.8kW+ sockets on 3D stacked dies.',
+        whyItMatters: 'Overcomes HBM thermal limits (85°C ceiling) allowing continuous peak clock boost in high-density racks.',
+        impact: 'Medium',
+        recommendedAction: 'Audit facility CDU cooling capacities and verify compliance with direct-to-chip liquid loops.',
+        timeHorizon: 'This quarter',
+        evidenceCount: 1,
+        sourceTypes: ['patent'],
+        evidenceLinks: [
+          {
+            source: 'patent',
+            sourceLabel: 'USPTO Patent #11,948,203',
+            title: 'Microfluidic Embedded Cooling for 3D Chiplets',
+            url: 'https://patents.google.com/patent/US202601948203A1/en',
+            date: '2026-08-20',
+            excerpt: 'Cross-sectional micrographs showing 38% reduction in junction-to-fluid thermal resistance.',
+            supportingReason: 'Official USPTO patent publication with certified thermal diagrams.',
+            evidenceType: 'primary'
+          }
+        ]
       },
       {
         id: 'item-105',
@@ -203,7 +305,26 @@ class IntelStore {
         mentionedEntities: ['NVIDIA Corp.', 'TSMC'],
         relatedItemIds: ['item-101'],
         evidenceSnippet: 'Item 1.01 Entry into a Material Definitive Agreement filing signed by CFO with delivery schedules starting Q1 2027.',
-        confidence: 0.94
+        confidence: 0.94,
+        whatChanged: 'NVIDIA locked in 65% of SK Hynix 16-high HBM4 memory allocation for 2026-2027 via strategic advance agreement.',
+        whyItMatters: 'Creates supply tightness for competing accelerator startups seeking custom TSMC base dies.',
+        impact: 'High',
+        recommendedAction: 'Engage alternative memory suppliers (Samsung, Micron) for 2027 HBM4 allocation reserves.',
+        timeHorizon: 'Within 48 hours',
+        evidenceCount: 1,
+        sourceTypes: ['sec_filing'],
+        evidenceLinks: [
+          {
+            source: 'sec_filing',
+            sourceLabel: 'SEC Form 8-K Definitive Agreement',
+            title: 'Strategic HBM4 Memory Supply Commitment',
+            url: 'https://www.sec.gov/edgar/searchedgar/companysearch',
+            date: '2026-08-20',
+            excerpt: 'Item 1.01 Entry into Material Agreement signed with delivery schedules starting Q1 2027.',
+            supportingReason: 'Legally binding regulatory filing disclosing executed supply agreement.',
+            evidenceType: 'primary'
+          }
+        ]
       }
     ];
 

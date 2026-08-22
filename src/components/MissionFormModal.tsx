@@ -61,8 +61,8 @@ const SOURCE_OPTIONS: Array<{ id: SourceType; label: string; desc: string }> = [
   { id: 'patent', label: 'USPTO & Patents', desc: 'Global patent filings, claims, and disclosures' },
   { id: 'news', label: 'Tech & Trade News', desc: 'Reuters, Bloomberg, SemiAnalysis, TechCrunch' },
   { id: 'sec_filing', label: 'SEC Filings', desc: '10-K, 10-Q, and 8-K regulatory disclosures' },
-  { id: 'github', label: 'GitHub & Benchmarks', desc: 'Open-weights, kernels, and benchmark repos' },
-  { id: 'web', label: 'Web Intelligence', desc: 'Grounded web disclosures and technical press' }
+  { id: 'social_media', label: 'Social Media', desc: 'Technical community discussions, X/Twitter, developer feeds' },
+  { id: 'github', label: 'GitHub & Benchmarks', desc: 'Open-weights, kernels, and benchmark repos' }
 ];
 
 export const MissionFormModal: React.FC<MissionFormModalProps> = ({

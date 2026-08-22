@@ -255,6 +255,40 @@ export default function App() {
     setMinRelevanceFilter((prev) => (prev === 80 ? null : 80));
   };
 
+  // Direct Natural-Language Research Trigger
+  const handleStartResearch = async (promptText: string) => {
+    if (isRunningScan) return;
+    setIsRunningScan(true);
+    try {
+      const structured = await api.parseResearchPrompt(promptText);
+      const payload: CreateMissionPayload = {
+        name: structured.name,
+        topic: structured.topic,
+        description: structured.description,
+        companies: structured.companies,
+        competitors: structured.competitors,
+        keywords: structured.keywords,
+        researchInterests: structured.researchInterests,
+        preferredSources: structured.preferredSources,
+        status: 'active',
+        frequencyMinutes: 30
+      };
+
+      const newMission = await api.createMission(payload);
+      const { missions: updatedMissions } = await api.getMissions();
+      setMissions(updatedMissions);
+      setActiveMission(newMission);
+      setSelectedEntity(null);
+
+      await api.runAutonomousCycle(newMission.id);
+      await loadActiveMissionData(newMission.id);
+    } catch (err) {
+      console.error('Failed to run autonomous research:', err);
+    } finally {
+      setIsRunningScan(false);
+    }
+  };
+
   return (
     <div className="bg-[#0A0A0B] text-[#E4E4E7] w-full h-screen flex flex-col font-sans overflow-hidden border border-[#27272A]">
       {/* Top Header */}
@@ -266,6 +300,7 @@ export default function App() {
         onOpenMissionManager={() => setIsMissionManagerOpen(true)}
         onOpenMissionDetail={handleOpenViewMission}
         onOpenReport={handleOpenReport}
+        onToggleStatus={handleToggleMissionStatus}
       />
 
       {/* Main 3-Pane Center Layout */}
@@ -293,7 +328,15 @@ export default function App() {
           onSelectItem={setSelectedItem}
           onOpenReport={handleOpenReport}
           activeMissionName={activeMission?.name || 'AI Semiconductor Intelligence'}
+          activeMissionTopic={activeMission?.topic || activeMission?.name}
+          activeMissionDescription={activeMission?.description}
+          activeMissionStatus={activeMission?.status}
           onOpenNewMission={handleOpenAssistant}
+          sourcesUsedSummary={activeMission?.sourcesUsedSummary}
+          preferredSources={activeMission?.preferredSources}
+          onStartResearch={handleStartResearch}
+          isWorkingScan={isRunningScan}
+          onToggleTracking={() => activeMission && handleToggleMissionStatus(activeMission.id)}
         />
 
         {/* Right Sidebar: Trend Detection Radar & Live Alerts */}

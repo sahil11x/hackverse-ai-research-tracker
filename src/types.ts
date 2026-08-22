@@ -1,7 +1,26 @@
-export type SourceType = 'arxiv' | 'patent' | 'news' | 'sec_filing' | 'github' | 'web';
+export type SourceType = 'arxiv' | 'patent' | 'news' | 'sec_filing' | 'social_media' | 'github' | 'web';
 export type PriorityLevel = 'CRITICAL' | 'STRATEGIC' | 'HIGH' | 'MEDIUM' | 'TREND' | 'LOW';
+export type ImpactLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 export type CategoryType = 'hardware' | 'architecture' | 'patent' | 'business' | 'benchmark' | 'software';
 export type VelocityType = 'accelerating' | 'steady' | 'emerging';
+
+export interface EvidenceLink {
+  source: SourceType;
+  sourceLabel: string;
+  title: string;
+  url: string;
+  date?: string;
+  excerpt?: string;
+  supportingReason?: string;
+  evidenceType?: 'primary' | 'secondary' | 'research' | 'company' | 'social';
+}
+
+export interface SourceUsageStat {
+  source: SourceType;
+  label: string;
+  status: 'used' | 'not_used' | 'not_required';
+  count: number;
+}
 
 export interface Mission {
   id: string;
@@ -30,6 +49,7 @@ export interface Mission {
   totalSignalsScanned: number;
   filteredInsightsCount: number;
   meanLatencyMs: number;
+  sourcesUsedSummary?: SourceUsageStat[];
 }
 
 export interface IntelItem {
@@ -52,6 +72,16 @@ export interface IntelItem {
   relatedItemIds: string[];
   evidenceSnippet?: string;
   confidence: number;
+
+  // Phase 3 Actionable Intelligence Model
+  whatChanged?: string;
+  whyItMatters?: string;
+  impact?: ImpactLevel;
+  recommendedAction?: string;
+  timeHorizon?: string;
+  evidenceCount?: number;
+  sourceTypes?: SourceType[];
+  evidenceLinks?: EvidenceLink[];
 }
 
 export interface TrendSignal {
