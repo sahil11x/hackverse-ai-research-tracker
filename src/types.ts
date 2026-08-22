@@ -267,3 +267,88 @@ export interface MultiAgentOrchestrationSummary {
   orchestrationStatus: 'complete' | 'partial' | 'failed';
   handoffTimestamp: string;
 }
+
+// ==========================================
+// TASK 4: CONTEXT & MEMORY MANAGEMENT TYPES
+// ==========================================
+
+export interface ResearchStep {
+  stepNumber: number;
+  runId: string;
+  query: string;
+  timestamp: string;
+  intent: string;
+  intentType: 'comparative' | 'academic_only' | 'opensource_only' | 'exploratory';
+  selectedTools: ToolName[];
+  executedTools: ToolName[];
+  evidenceCount: number;
+  findingsCount: number;
+  topFindings: string[];
+  keyEntities: string[];
+  planSummary?: string;
+  analystSummary?: string;
+  isFollowUp?: boolean;
+}
+
+export interface RejectedFinding {
+  title: string;
+  source: SourceType;
+  reason: string;
+  url?: string;
+}
+
+export interface SummarizedFinding {
+  id: string;
+  title: string;
+  source: SourceType;
+  whatChanged: string;
+  whyItMatters: string;
+  impact: string;
+  publishedAt?: string;
+}
+
+export interface ResearchContext {
+  missionId: string;
+  currentQuery: string;
+  previousQueries: string[];
+  researchObjective: string;
+  detectedIntent: string;
+  targetEntities: Array<{ name: string; ticker?: string; role: string; type?: string }>;
+  competitors: string[];
+  selectedTools: ToolName[];
+  executedTools: ToolName[];
+  relevantKeywords: string[];
+  researchAreas: string[];
+  currentResearchPlan?: ResearchPlan;
+  handoffId?: string;
+  evidenceSummary: string;
+  verifiedSources: SourceType[];
+  importantFindings: SummarizedFinding[];
+  rejectedFindings: RejectedFinding[];
+  lastResearchTimestamp: string;
+  conversationSteps: ResearchStep[];
+  followUpQueries: string[];
+  userPreferences: {
+    preferredSources?: SourceType[];
+    focusAreas?: string[];
+  };
+}
+
+export interface ResearchRunResult {
+  success: boolean;
+  runId: string;
+  missionId: string;
+  stepNumber: number;
+  query: string;
+  isFollowUp: boolean;
+  orchestration: MultiAgentOrchestrationSummary;
+  itemsCount: number;
+  trendsCount: number;
+  alertsCount: number;
+  sourcesUsedSummary: SourceUsageStat[];
+  toolRecords: ToolExecutionRecord[];
+  rejectedFindings: RejectedFinding[];
+  context: ResearchContext;
+  elapsedMs: number;
+}
+

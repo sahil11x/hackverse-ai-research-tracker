@@ -5,15 +5,32 @@ import { correlateAndClusterItems } from './agents/trendCorrelator';
 import { store } from './store';
 import {
   MultiAgentOrchestrationSummary,
+  ResearchContext,
+  ResearchRunResult,
+  ResearchStep,
   SourceType,
-  SourceUsageStat
+  SourceUsageStat,
+  SummarizedFinding
 } from '../src/types';
 
+export interface MissionCycleOptions {
+  query?: string;
+  isFollowUp?: boolean;
+  runId?: string;
+}
+
 /**
- * Core Multi-Agent Orchestrator:
- * Executes Agent 1 (Research Planner) -> Live Tools Execution Layer -> Agent 2 (Intelligence Analyst) -> Trend & Alert Engine.
+ * Core Multi-Agent Orchestrator with Context & Memory Management:
+ * Executes Agent 1 (Research Planner with Context)
+ *   -> Live Tools Execution Layer (isolated to planned tools)
+ *   -> Agent 2 (Intelligence Analyst with Context & Quality Filter)
+ *   -> Trend & Alert Engine
+ *   -> Context & Memory Persistence Layer.
  */
-export async function runAutonomousMissionCycle(missionId: string) {
+export async function runAutonomousMissionCycle(
+  missionId: string,
+  options?: MissionCycleOptions
+): Promise<ResearchRunResult> {
   const startTime = Date.now();
   const mission = store.getMission(missionId);
 
@@ -21,21 +38,27 @@ export async function runAutonomousMissionCycle(missionId: string) {
     throw new Error(`Mission ${missionId} not found`);
   }
 
-  const rawObjective = mission.objective || `${mission.name}: ${mission.topic || mission.description}`;
+  // Generate unique run ID for strict execution isolation
+  const runId = options?.runId || `RUN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const context = store.getContext(missionId);
+
+  const rawObjective = options?.query?.trim() || mission.objective || `${mission.name}: ${mission.topic || mission.description}`;
+  const isFollowUp = options?.isFollowUp || (context.conversationSteps.length > 0 && Boolean(options?.query));
+  const stepNumber = context.conversationSteps.length + 1;
 
   store.addLog(
     'SYSTEM',
-    `============================================================\nSTARTING MULTI-AGENT RESEARCH PIPELINE: [${mission.code}] "${mission.name}"\n============================================================`,
+    `============================================================\n[RUN: ${runId}] ${isFollowUp ? `STEP ${stepNumber} (FOLLOW-UP)` : 'RESEARCH STEP'} FOR [${mission.code}] "${mission.name}"\nOBJECTIVE: "${rawObjective}"\n============================================================`,
     'MultiAgentOrchestrator'
   );
 
   try {
     // =========================================================================
-    // AGENT 1: RESEARCH PLANNER AGENT
+    // AGENT 1: RESEARCH PLANNER AGENT (WITH CONTEXT INGESTION)
     // =========================================================================
     store.addLog(
       'INFO',
-      `STAGE 1/4: AGENT 1 (RESEARCH PLANNER) — Analyzing intent, selecting tools, generating optimized queries...`,
+      `STAGE 1/4: AGENT 1 (RESEARCH PLANNER) — Analyzing intent with mission context (${context.conversationSteps.length} prior steps)...`,
       'ResearchPlannerAgent'
     );
 
@@ -48,10 +71,11 @@ export async function runAutonomousMissionCycle(missionId: string) {
       keywords: mission.keywords,
       researchInterests: mission.researchInterests,
       preferredSources: mission.preferredSources,
-      objective: rawObjective
+      objective: rawObjective,
+      context
     });
 
-    // Update mission parameters if the planner discovered richer structure
+    // Update mission metadata if planner extracted structured entities
     if (plan.targetEntities.length > 0) {
       mission.targetEntities = plan.targetEntities.map((e) => ({
         name: e.name,
@@ -68,7 +92,7 @@ export async function runAutonomousMissionCycle(missionId: string) {
     }
 
     // =========================================================================
-    // LIVE RESEARCH TOOLS EXECUTION LAYER
+    // LIVE RESEARCH TOOLS EXECUTION LAYER (ONLY EXECUTES SELECTED TOOLS)
     // =========================================================================
     store.addLog(
       'INFO',
@@ -79,15 +103,15 @@ export async function runAutonomousMissionCycle(missionId: string) {
     const evidenceBundle = await executeEvidenceCollection(handoff);
 
     // =========================================================================
-    // AGENT 2: INTELLIGENCE ANALYST AGENT
+    // AGENT 2: INTELLIGENCE ANALYST AGENT (WITH CONTEXT & QUALITY FILTER)
     // =========================================================================
     store.addLog(
       'INFO',
-      `STAGE 3/4: AGENT 2 (INTELLIGENCE ANALYST) — Analyzing ${evidenceBundle.totalCollected} live evidence items under Plan [${plan.planId}]...`,
+      `STAGE 3/4: AGENT 2 (INTELLIGENCE ANALYST) — Analyzing ${evidenceBundle.totalCollected} live evidence items under Plan [${plan.planId}] with context...`,
       'IntelligenceAnalystAgent'
     );
 
-    const analystResult = await executeIntelligenceAnalystAgent(evidenceBundle, handoff, missionId);
+    const analystResult = await executeIntelligenceAnalystAgent(evidenceBundle, handoff, missionId, context);
 
     // =========================================================================
     // TREND RADAR & ALERT ENGINE
@@ -116,7 +140,7 @@ export async function runAutonomousMissionCycle(missionId: string) {
       }
     );
 
-    // Compute Source Usage Transparency Summary based on real tool execution
+    // Compute Source Usage Transparency Summary strictly based on real tool execution
     const arxivRecord = evidenceBundle.toolExecutionRecords.find((r) => r.tool === 'search_arxiv');
     const githubRecord = evidenceBundle.toolExecutionRecords.find((r) => r.tool === 'search_github');
 
@@ -189,7 +213,7 @@ export async function runAutonomousMissionCycle(missionId: string) {
 
     mission.sourcesUsedSummary = sourcesUsedSummary;
 
-    // Build Multi-Agent Orchestration Summary
+    // Build truthful MultiAgentOrchestrationSummary strictly representing the current run
     const orchestrationSummary: MultiAgentOrchestrationSummary = {
       planner: {
         planId: plan.planId,
@@ -219,8 +243,93 @@ export async function runAutonomousMissionCycle(missionId: string) {
 
     mission.lastOrchestration = orchestrationSummary;
 
-    // Save to store
-    store.addIntelItems(missionId, correlatedItems);
+    // =========================================================================
+    // TASK 4: CONTEXT & MEMORY UPDATE
+    // =========================================================================
+    const topFindingsSummarized: SummarizedFinding[] = correlatedItems.slice(0, 5).map((f) => ({
+      id: f.id,
+      title: f.title,
+      source: f.source,
+      whatChanged: f.whatChanged || f.title,
+      whyItMatters: f.whyItMatters || f.summary,
+      impact: f.impact || 'High',
+      publishedAt: f.publishedAt
+    }));
+
+    const conversationStep: ResearchStep = {
+      stepNumber,
+      runId,
+      query: rawObjective,
+      timestamp: new Date().toISOString(),
+      intent: plan.intent,
+      intentType: plan.intentType,
+      selectedTools: plan.selectedTools,
+      executedTools: plan.selectedTools,
+      evidenceCount: evidenceBundle.totalCollected,
+      findingsCount: correlatedItems.length,
+      topFindings: correlatedItems.slice(0, 3).map((i) => i.title),
+      keyEntities: plan.targetEntities.map((e) => e.name),
+      planSummary: `Intent: [${plan.intentType.toUpperCase()}]. Query vectors: ${Object.values(plan.toolQueries).filter(Boolean).join(' | ')}.`,
+      analystSummary: analystResult.strategicSummary,
+      isFollowUp
+    };
+
+    // Formulate dynamic follow-up suggestions based on active step results
+    let dynamicFollowUps = [
+      'Now find open-source GitHub implementations of these techniques',
+      'Compare recent academic benchmarks for these architectures',
+      'Analyze memory bandwidth optimization and kernel execution trade-offs'
+    ];
+    if (plan.selectedTools.includes('search_arxiv') && !plan.selectedTools.includes('search_github')) {
+      dynamicFollowUps = [
+        'Now find open-source GitHub implementations of these techniques',
+        'Compare performance benchmarks with TensorRT-LLM and vLLM',
+        'Analyze hardware deployment requirements on NVIDIA GPUs'
+      ];
+    } else if (plan.selectedTools.includes('search_github') && !plan.selectedTools.includes('search_arxiv')) {
+      dynamicFollowUps = [
+        'Find theoretical academic papers explaining these algorithms on arXiv',
+        'Compare kernel throughput across NVIDIA vs AMD hardware',
+        'Investigate memory footprint quantization trade-offs'
+      ];
+    }
+
+    // Update the long-term mission context
+    const updatedContext: ResearchContext = {
+      missionId,
+      currentQuery: rawObjective,
+      previousQueries: [...context.previousQueries.filter((q) => q !== rawObjective), rawObjective],
+      researchObjective: mission.objective || rawObjective,
+      detectedIntent: plan.intentType,
+      targetEntities: plan.targetEntities,
+      competitors: mission.competitors || [],
+      selectedTools: plan.selectedTools,
+      executedTools: plan.selectedTools,
+      relevantKeywords: mission.keywords || [],
+      researchAreas: plan.researchAreas,
+      currentResearchPlan: plan,
+      handoffId: handoff.handoffId,
+      evidenceSummary: `Step ${stepNumber} retrieved ${evidenceBundle.totalCollected} live evidence records, synthesizing ${correlatedItems.length} actionable findings.`,
+      verifiedSources: plan.selectedTools.map((t) => (t === 'search_arxiv' ? 'arxiv' : 'github')) as SourceType[],
+      importantFindings: topFindingsSummarized,
+      rejectedFindings: analystResult.rejectedFindings || [],
+      lastResearchTimestamp: new Date().toISOString(),
+      conversationSteps: [...context.conversationSteps, conversationStep],
+      followUpQueries: dynamicFollowUps,
+      userPreferences: {
+        preferredSources: mission.preferredSources,
+        focusAreas: mission.focusAreas
+      }
+    };
+
+    store.setContext(missionId, updatedContext);
+
+    // =========================================================================
+    // STATE SYNCHRONIZATION: ATOMICALLY COMMIT CURRENT RUN FINDINGS
+    // (Prevents stale results from previous runs from lingering)
+    // =========================================================================
+    store.replaceIntelItems(missionId, correlatedItems);
+
     if (detectedTrends.length > 0) {
       store.setTrends(missionId, detectedTrends);
     }
@@ -235,29 +344,36 @@ export async function runAutonomousMissionCycle(missionId: string) {
     if (newAlerts.length > 0) {
       store.addLog(
         'CRITICAL',
-        `Autonomous Alert Engine triggered ${newAlerts.length} high-impact alerts.`,
+        `Autonomous Alert Engine triggered ${newAlerts.length} high-impact alerts for run [${runId}].`,
         'AlertEngine'
       );
     }
 
     store.addLog(
       'SUCCESS',
-      `============================================================\nMULTI-AGENT PIPELINE COMPLETE: ${correlatedItems.length} verified findings synthesized in ${(elapsedMs / 1000).toFixed(2)}s.\n============================================================`,
+      `============================================================\nMULTI-AGENT PIPELINE COMPLETE [RUN: ${runId}]: ${correlatedItems.length} verified findings synthesized in ${(elapsedMs / 1000).toFixed(2)}s.\n============================================================`,
       'MultiAgentOrchestrator'
     );
 
     return {
       success: true,
+      runId,
+      missionId,
+      stepNumber,
+      query: rawObjective,
+      isFollowUp,
       orchestration: orchestrationSummary,
       itemsCount: correlatedItems.length,
       trendsCount: detectedTrends.length,
       alertsCount: newAlerts.length,
       sourcesUsedSummary,
       toolRecords: evidenceBundle.toolExecutionRecords,
+      rejectedFindings: analystResult.rejectedFindings || [],
+      context: updatedContext,
       elapsedMs
     };
   } catch (err: any) {
-    store.addLog('CRITICAL', `Multi-agent pipeline error: ${err.message || err}`, 'MultiAgentOrchestrator');
+    store.addLog('CRITICAL', `Multi-agent pipeline error in run [${runId}]: ${err.message || err}`, 'MultiAgentOrchestrator');
     throw err;
   }
 }

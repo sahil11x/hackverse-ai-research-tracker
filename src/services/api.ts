@@ -1,4 +1,13 @@
-import { IntelAlert, IntelItem, Mission, SystemLog, TrendSignal, SourceType } from '../types';
+import {
+  IntelAlert,
+  IntelItem,
+  Mission,
+  SystemLog,
+  TrendSignal,
+  SourceType,
+  ResearchContext,
+  ResearchRunResult
+} from '../types';
 
 export interface CreateMissionPayload {
   name?: string;
@@ -102,10 +111,26 @@ export const api = {
     return res.json();
   },
 
-  async runAutonomousCycle(missionId: string): Promise<any> {
+  async runAutonomousCycle(missionId: string, options?: { query?: string; isFollowUp?: boolean; runId?: string }): Promise<ResearchRunResult> {
     const res = await fetch(`/api/missions/${missionId}/run`, {
-      method: 'POST'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {})
     });
+    return res.json();
+  },
+
+  async runResearchStep(missionId: string, query: string, isFollowUp = false): Promise<ResearchRunResult> {
+    const res = await fetch(`/api/missions/${missionId}/research`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, isFollowUp })
+    });
+    return res.json();
+  },
+
+  async getContext(missionId: string): Promise<ResearchContext> {
+    const res = await fetch(`/api/missions/${missionId}/context`);
     return res.json();
   },
 

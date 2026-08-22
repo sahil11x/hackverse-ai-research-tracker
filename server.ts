@@ -137,12 +137,6 @@ async function startServer() {
       };
 
       const created = store.createMission(newMission);
-
-      // Trigger initial collection cycle
-      runAutonomousMissionCycle(created.id).catch((err) => {
-        console.error('Initial cycle error:', err);
-      });
-
       res.status(201).json(created);
     } catch (err: any) {
       console.error('Create mission error:', err);
@@ -215,15 +209,42 @@ async function startServer() {
     res.json(updated);
   });
 
-  // Run autonomous cycle for a mission
+  // Run autonomous cycle or contextual research step for a mission
   app.post('/api/missions/:id/run', async (req, res) => {
     const { id } = req.params;
+    const { query, isFollowUp, runId } = req.body || {};
     try {
-      const result = await runAutonomousMissionCycle(id);
+      const result = await runAutonomousMissionCycle(id, { query, isFollowUp, runId });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Execution error' });
     }
+  });
+
+  // Direct contextual research execution endpoint
+  app.post('/api/missions/:id/research', async (req, res) => {
+    const { id } = req.params;
+    const { query, isFollowUp, runId } = req.body || {};
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return res.status(400).json({ error: 'Research query is required' });
+    }
+    try {
+      const result = await runAutonomousMissionCycle(id, { query: query.trim(), isFollowUp, runId });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Execution error' });
+    }
+  });
+
+  // Get Research Context & Mission Memory
+  app.get('/api/missions/:id/context', (req, res) => {
+    const { id } = req.params;
+    const mission = store.getMission(id);
+    if (!mission) {
+      return res.status(404).json({ error: 'Mission not found' });
+    }
+    const context = store.getContext(id);
+    res.json(context);
   });
 
   // Get Intelligence items

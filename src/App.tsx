@@ -1,6 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, CreateMissionPayload } from './services/api';
-import { IntelAlert, IntelItem, Mission, SystemLog, TrendSignal } from './types';
+import {
+  IntelAlert,
+  IntelItem,
+  Mission,
+  SystemLog,
+  TrendSignal,
+  ResearchContext
+} from './types';
 import { Header } from './components/Header';
 import { SidebarLeft } from './components/SidebarLeft';
 import { IntelFeed } from './components/IntelFeed';
@@ -20,6 +27,7 @@ export default function App() {
   const [trends, setTrends] = useState<TrendSignal[]>([]);
   const [alerts, setAlerts] = useState<IntelAlert[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
+  const [researchContext, setResearchContext] = useState<ResearchContext | null>(null);
 
   // Filters & State
   const [minRelevanceFilter, setMinRelevanceFilter] = useState<number | null>(null);
@@ -42,17 +50,19 @@ export default function App() {
   // Load Mission Data
   const loadActiveMissionData = useCallback(async (missionId: string) => {
     try {
-      const [itemsRes, trendsRes, alertsRes, logsRes] = await Promise.all([
+      const [itemsRes, trendsRes, alertsRes, logsRes, contextRes] = await Promise.all([
         api.getIntelItems(missionId, { minRelevance: minRelevanceFilter || undefined }),
         api.getTrends(missionId),
         api.getAlerts(missionId),
-        api.getLogs()
+        api.getLogs(),
+        api.getContext(missionId)
       ]);
 
       setIntelItems(itemsRes.items || []);
       setTrends(trendsRes || []);
       setAlerts(alertsRes || []);
       setLogs(logsRes || []);
+      setResearchContext(contextRes || null);
     } catch (err) {
       console.error('Failed to load mission data:', err);
     }
@@ -114,7 +124,11 @@ export default function App() {
     if (!targetMissionId || isRunningScan) return;
     setIsRunningScan(true);
     try {
-      await api.runAutonomousCycle(targetMissionId);
+      const runRes = await api.runAutonomousCycle(targetMissionId);
+      if (runRes.context) {
+        setResearchContext(runRes.context);
+      }
+
       // Reload mission list for updated stats
       const { missions: updatedMissions } = await api.getMissions();
       setMissions(updatedMissions);
@@ -255,11 +269,33 @@ export default function App() {
     setMinRelevanceFilter((prev) => (prev === 80 ? null : 80));
   };
 
-  // Direct Natural-Language Research Trigger
-  const handleStartResearch = async (promptText: string) => {
+  // Direct Natural-Language Research Trigger with Context & Follow-Up Ingestion
+  const handleStartResearch = async (promptText: string, isFollowUp = false) => {
     if (isRunningScan) return;
     setIsRunningScan(true);
+
     try {
+      // If we have an active mission and this is a continuation/follow-up:
+      if (activeMission && (isFollowUp || (researchContext && researchContext.conversationSteps.length > 0 && (promptText.toLowerCase().startsWith('now ') || promptText.toLowerCase().startsWith('also ') || promptText.toLowerCase().includes('these techniques') || promptText.toLowerCase().includes('compare this with'))))) {
+        const runRes = await api.runAutonomousCycle(activeMission.id, {
+          query: promptText,
+          isFollowUp: true
+        });
+
+        if (runRes.context) {
+          setResearchContext(runRes.context);
+        }
+
+        const { missions: updatedMissions } = await api.getMissions();
+        setMissions(updatedMissions);
+        const refreshed = updatedMissions.find((m) => m.id === activeMission.id);
+        if (refreshed) setActiveMission(refreshed);
+
+        await loadActiveMissionData(activeMission.id);
+        return;
+      }
+
+      // Otherwise, parse prompt into a structured mission definition and execute
       const structured = await api.parseResearchPrompt(promptText);
       const payload: CreateMissionPayload = {
         name: structured.name,
@@ -280,7 +316,15 @@ export default function App() {
       setActiveMission(newMission);
       setSelectedEntity(null);
 
-      await api.runAutonomousCycle(newMission.id);
+      const runRes = await api.runAutonomousCycle(newMission.id, {
+        query: promptText,
+        isFollowUp: false
+      });
+
+      if (runRes.context) {
+        setResearchContext(runRes.context);
+      }
+
       await loadActiveMissionData(newMission.id);
     } catch (err) {
       console.error('Failed to run autonomous research:', err);
@@ -318,7 +362,7 @@ export default function App() {
           onSelectEntity={setSelectedEntity}
         />
 
-        {/* Center: Actionable Intelligence Feed */}
+        {/* Center: Actionable Intelligence Feed & Mission Working Memory */}
         <IntelFeed
           items={intelItems}
           totalSignals={activeMission?.totalSignalsScanned || 1204}
@@ -338,6 +382,7 @@ export default function App() {
           isWorkingScan={isRunningScan}
           onToggleTracking={() => activeMission && handleToggleMissionStatus(activeMission.id)}
           orchestration={activeMission?.lastOrchestration}
+          context={researchContext}
         />
 
         {/* Right Sidebar: Trend Detection Radar & Live Alerts */}
@@ -433,4 +478,3 @@ export default function App() {
     </div>
   );
 }
-

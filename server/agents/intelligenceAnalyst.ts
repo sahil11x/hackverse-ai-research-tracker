@@ -7,6 +7,8 @@ import {
   IntelItem,
   PriorityLevel,
   RawDiscoveredItem,
+  RejectedFinding,
+  ResearchContext,
   SourceType
 } from '../../src/types';
 import { store } from '../store';
@@ -21,21 +23,30 @@ function createHashFingerprint(str: string): string {
   return `fp_${Math.abs(hash).toString(16)}`;
 }
 
+export interface ExtendedAnalystResult extends AnalystResult {
+  rejectedFindings?: RejectedFinding[];
+}
+
 /**
  * Fallback heuristic analysis engine when Gemini API is unavailable.
- * Strictly operates on the real evidence items returned by the tools.
+ * Strictly operates on the real evidence items returned by the tools and integrates previous context.
  */
 function analyzeEvidenceHeuristically(
   bundle: EvidenceBundle,
   handoff: AgentHandoff,
-  missionId: string
-): AnalystResult {
+  missionId: string,
+  context?: ResearchContext
+): ExtendedAnalystResult {
   const plan = handoff.plan;
   const startTime = Date.now();
   const rawItems = bundle.evidenceItems;
 
   const findings: IntelItem[] = [];
+  const rejectedFindings: RejectedFinding[] = [];
   const seenFp = new Set<string>();
+
+  const isFollowUp = Boolean(context && context.conversationSteps && context.conversationSteps.length > 0);
+  const prevFindingsSummary = (context?.importantFindings || []).slice(0, 2).map((f) => f.title).join(', ');
 
   for (let idx = 0; idx < rawItems.length; idx++) {
     const item = rawItems[idx];
@@ -61,9 +72,13 @@ function analyzeEvidenceHeuristically(
       ? `Academic research published on arXiv detailing novel methodology: "${cleanTitle.slice(0, 100)}"`
       : `Open-source implementation update identified on GitHub: "${cleanTitle.slice(0, 100)}"`;
 
-    const whyItMatters = isPaper
+    let whyItMatters = isPaper
       ? `Provides theoretical and empirical benchmarks directly relevant to ${plan.researchAreas[0] || 'inference optimization'}.`
       : `Demonstrates real-world software kernel implementation and practical performance trade-offs for ${plan.objective}.`;
+
+    if (isFollowUp && prevFindingsSummary) {
+      whyItMatters = `${whyItMatters} Complements prior research findings (${prevFindingsSummary.slice(0, 70)}...) by providing verified source artifacts.`;
+    }
 
     const recommendedAction = isPaper
       ? `Review mathematical formulation and benchmark methodology against internal baseline models.`
@@ -86,7 +101,8 @@ function analyzeEvidenceHeuristically(
       summary: cleanSnippet,
       keyImplications: [
         `Directly aligns with planned focus area: ${plan.researchAreas[idx % plan.researchAreas.length] || 'System Performance'}`,
-        `Evidence verified against live ${item.sourceLabel} endpoint.`
+        `Evidence verified against live ${item.sourceLabel} endpoint.`,
+        ...(isFollowUp ? [`Follow-up contextual alignment with established mission memory.`] : [])
       ],
       mentionedEntities: plan.targetEntities.map((e) => e.name),
       relatedItemIds: [],
@@ -130,6 +146,7 @@ function analyzeEvidenceHeuristically(
     handoffId: handoff.handoffId,
     evidenceAnalyzedCount: rawItems.length,
     findings,
+    rejectedFindings,
     strategicSummary: `Intelligence Analyst evaluated ${rawItems.length} live evidence items under Plan [${plan.planId}], synthesizing ${findings.length} verified findings.`,
     rankedImpacts,
     executionTimeMs: Date.now() - startTime,
@@ -139,15 +156,17 @@ function analyzeEvidenceHeuristically(
 
 /**
  * AGENT 2: INTELLIGENCE ANALYST
- * Consumes the ResearchPlan + AgentHandoff and the live EvidenceBundle.
- * Analyzes real evidence, eliminates duplicates, evaluates relevance,
+ * Consumes the ResearchPlan + AgentHandoff, the live EvidenceBundle, and historical ResearchContext.
+ * Analyzes real evidence, separates newly retrieved live evidence from historical context,
+ * evaluates relevance, filters out irrelevant items into rejectedFindings,
  * ranks strategic impact, and produces verified Actionable Intelligence items.
  */
 export async function executeIntelligenceAnalystAgent(
   bundle: EvidenceBundle,
   handoff: AgentHandoff,
-  missionId: string
-): Promise<AnalystResult> {
+  missionId: string,
+  context?: ResearchContext
+): Promise<ExtendedAnalystResult> {
   const plan = handoff.plan;
   const startTime = Date.now();
   const rawItems = bundle.evidenceItems;
@@ -177,6 +196,7 @@ export async function executeIntelligenceAnalystAgent(
       handoffId: handoff.handoffId,
       evidenceAnalyzedCount: 0,
       findings: [],
+      rejectedFindings: [],
       strategicSummary: 'No live evidence was returned by the external research tools for this query.',
       rankedImpacts: { criticalCount: 0, highCount: 0, mediumCount: 0, lowCount: 0 },
       executionTimeMs: Date.now() - startTime,
@@ -192,7 +212,7 @@ export async function executeIntelligenceAnalystAgent(
       'AGENT 2 — INTELLIGENCE ANALYST: Using deterministic intelligence synthesis engine.',
       'IntelligenceAnalystAgent'
     );
-    const result = analyzeEvidenceHeuristically(bundle, handoff, missionId);
+    const result = analyzeEvidenceHeuristically(bundle, handoff, missionId, context);
     logAnalystSummary(result);
     return result;
   }
@@ -211,6 +231,24 @@ export async function executeIntelligenceAnalystAgent(
       snippet: item.evidenceSnippet || item.rawContent.slice(0, 300)
     }));
 
+    // Historical context summary for Agent 2
+    let contextInstructions = 'Fresh research execution.';
+    if (context && context.conversationSteps && context.conversationSteps.length > 0) {
+      const pastQueries = context.conversationSteps.map((s) => `Step ${s.stepNumber}: "${s.query}"`).join('; ');
+      const pastFindings = (context.importantFindings || []).slice(0, 3).map((f) => `"${f.title}" (${f.source})`).join('; ');
+
+      contextInstructions = `
+CRITICAL CONTEXT FOR ANALYST:
+This research is a follow-up or progression inside mission [${context.missionId}].
+Prior steps conducted: ${pastQueries}
+Prior key findings established: ${pastFindings || 'None'}
+INSTRUCTIONS:
+1. Ground findings in the NEW LIVE EVIDENCE ITEMS provided below.
+2. In "whyItMatters" and "keyImplications", explicitly connect the new live evidence to the user's progression (e.g. how newly found GitHub implementations realize or benchmark the theoretical techniques discussed in prior steps).
+3. Do NOT claim historical evidence as newly retrieved live items; only synthesize items present in the Live Evidence list below.
+`;
+    }
+
     const prompt = `You are AGENT 2: INTELLIGENCE ANALYST for Hackverse Intel, an autonomous AI research & competitive intelligence platform.
 
 YOU HAVE RECEIVED A STRUCTURED RESEARCH PLAN AND LIVE EVIDENCE BUNDLE FROM AGENT 1 (RESEARCH PLANNER):
@@ -220,23 +258,27 @@ YOU HAVE RECEIVED A STRUCTURED RESEARCH PLAN AND LIVE EVIDENCE BUNDLE FROM AGENT
 - Focus Areas: ${plan.researchAreas.join(', ')}
 - Target Entities: ${plan.targetEntities.map((e) => e.name).join(', ')}
 - Instructions from Agent 1: "${handoff.instructionsForAnalyst}"
+${contextInstructions}
 
 LIVE EVIDENCE COLLECTED FROM REAL TOOLS (${rawItems.length} items):
 ${JSON.stringify(evidencePayload, null, 2)}
 
 YOUR MANDATORY ANALYST RESPONSIBILITIES:
 1. Ground your analysis ONLY on the provided live evidence items. NEVER invent or fabricate citations, URLs, papers, or repositories.
-2. For each relevant item:
+2. RELEVANCE & QUALITY PROTECTION:
+   - Evaluate if each evidence item is genuinely relevant to the research objective.
+   - If an item is clearly unrelated (e.g. completely different domain), flag it as rejected in "rejectedItems".
+   - For valid items, assign accurate relevanceScore (50-100) and impactScore (50-100).
+3. For each accepted item:
    - Identify "whatChanged": Concrete factual update described in the evidence.
-   - Identify "whyItMatters": Strategic, technical, or competitive significance for the user's objective.
+   - Identify "whyItMatters": Strategic, technical, or competitive significance for the user's objective (and connect to prior steps if follow-up).
    - Formulate "recommendedAction": Specific, actionable next step for an engineering or executive leader.
    - Assess "timeHorizon": "Within 48 hours", "Within 2 weeks", or "This quarter".
    - Assign "impact": "Critical", "High", "Medium", or "Low".
-   - Assign "relevanceScore" (0-100) and "impactScore" (0-100).
    - Assign "strategicPriority": "CRITICAL", "STRATEGIC", "HIGH", "MEDIUM", or "TREND".
    - Match item index to attach full source provenance.
 
-Respond strictly with a valid JSON array matching the requested schema.`;
+Respond strictly with a valid JSON object matching the requested schema.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.7-flash',
@@ -291,6 +333,17 @@ Respond strictly with a valid JSON array matching the requested schema.`;
                   'timeHorizon'
                 ]
               }
+            },
+            rejectedItems: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  evidenceIndex: { type: Type.INTEGER },
+                  reason: { type: Type.STRING }
+                },
+                required: ['evidenceIndex', 'reason']
+              }
             }
           },
           required: ['strategicSummary', 'analyzedFindings']
@@ -301,6 +354,20 @@ Respond strictly with a valid JSON array matching the requested schema.`;
     const text = response.text?.trim() || '{}';
     const parsed = JSON.parse(text);
     const analyzedList = Array.isArray(parsed.analyzedFindings) ? parsed.analyzedFindings : [];
+    const rejectedList = Array.isArray(parsed.rejectedItems) ? parsed.rejectedItems : [];
+
+    const rejectedFindings: RejectedFinding[] = [];
+    for (const rej of rejectedList) {
+      const raw = rawItems[rej.evidenceIndex];
+      if (raw) {
+        rejectedFindings.push({
+          title: raw.title,
+          source: raw.source,
+          reason: rej.reason || 'Deemed insufficiently relevant to current research objective.',
+          url: raw.sourceUrl
+        });
+      }
+    }
 
     const findings: IntelItem[] = [];
     const seenFp = new Set<string>();
@@ -320,33 +387,33 @@ Respond strictly with a valid JSON array matching the requested schema.`;
       const finding: IntelItem = {
         id: `intel-${missionId}-${Date.now()}-${i}`,
         missionId,
-        title: rawEvidence.title || itemAnalysis.title,
+        title: itemAnalysis.title || rawEvidence.title,
         source: rawEvidence.source,
         sourceLabel: rawEvidence.sourceLabel,
         sourceUrl: rawEvidence.sourceUrl,
-        publishedAt: rawEvidence.publishedAt || new Date().toISOString(),
+        publishedAt: rawEvidence.publishedAt,
         rawContent: rawEvidence.rawContent,
         fingerprint: fp,
-        relevanceScore: Math.min(Math.max(itemAnalysis.relevanceScore || 85, 50), 100),
-        impactScore: Math.min(Math.max(itemAnalysis.impactScore || 80, 40), 100),
+        relevanceScore: Math.min(100, Math.max(50, itemAnalysis.relevanceScore || 85)),
+        impactScore: Math.min(100, Math.max(50, itemAnalysis.impactScore || 80)),
         strategicPriority: priority,
-        category: itemAnalysis.category || (rawEvidence.source === 'arxiv' ? 'architecture' : 'software'),
-        summary: itemAnalysis.summary || rawEvidence.evidenceSnippet || rawEvidence.rawContent.slice(0, 250),
+        category: (itemAnalysis.category as any) || (rawEvidence.source === 'arxiv' ? 'architecture' : 'software'),
+        summary: itemAnalysis.summary || rawEvidence.evidenceSnippet || rawEvidence.rawContent.slice(0, 280),
         keyImplications: Array.isArray(itemAnalysis.keyImplications) && itemAnalysis.keyImplications.length > 0
           ? itemAnalysis.keyImplications
           : [
-              `Directly addresses research focus: ${plan.researchAreas[0] || 'Inference Optimization'}`,
-              `Source verified with live ${rawEvidence.sourceLabel} API connection.`
+              `Directly addresses focus vector: ${plan.researchAreas[0] || 'Inference Optimization'}`,
+              `Verified against live ${rawEvidence.sourceLabel} repository.`
             ],
         mentionedEntities: plan.targetEntities.map((e) => e.name),
         relatedItemIds: [],
-        evidenceSnippet: rawEvidence.evidenceSnippet || rawEvidence.rawContent.slice(0, 250),
+        evidenceSnippet: rawEvidence.evidenceSnippet || rawEvidence.rawContent.slice(0, 300),
         confidence: itemAnalysis.confidence || 0.95,
         whatChanged: itemAnalysis.whatChanged,
         whyItMatters: itemAnalysis.whyItMatters,
         impact,
         recommendedAction: itemAnalysis.recommendedAction,
-        timeHorizon: itemAnalysis.timeHorizon || (impact === 'Critical' ? 'Within 48 hours' : 'Within 2 weeks'),
+        timeHorizon: itemAnalysis.timeHorizon || 'Within 2 weeks',
         evidenceCount: 1,
         sourceTypes: [rawEvidence.source],
         evidenceLinks: [
@@ -366,13 +433,6 @@ Respond strictly with a valid JSON array matching the requested schema.`;
       findings.push(finding);
     }
 
-    // If Gemini missed some raw items, add remaining items cleanly
-    if (findings.length === 0 && rawItems.length > 0) {
-      const fallback = analyzeEvidenceHeuristically(bundle, handoff, missionId);
-      logAnalystSummary(fallback);
-      return fallback;
-    }
-
     // Sort by impactScore descending
     findings.sort((a, b) => b.impactScore - a.impactScore);
 
@@ -383,13 +443,14 @@ Respond strictly with a valid JSON array matching the requested schema.`;
       lowCount: findings.filter((f) => f.impact === 'Low').length
     };
 
-    const result: AnalystResult = {
+    const result: ExtendedAnalystResult = {
       analystId: `ANALYST-${Date.now().toString(36).toUpperCase()}`,
       planId: plan.planId,
       handoffId: handoff.handoffId,
       evidenceAnalyzedCount: rawItems.length,
       findings,
-      strategicSummary: parsed.strategicSummary || `Synthesized ${findings.length} findings from ${rawItems.length} live evidence items.`,
+      rejectedFindings,
+      strategicSummary: parsed.strategicSummary || `Synthesized ${findings.length} actionable intelligence items from ${rawItems.length} live evidence records under Plan [${plan.planId}].`,
       rankedImpacts,
       executionTimeMs: Date.now() - startTime,
       evidenceAttachedCount: findings.length
@@ -403,13 +464,13 @@ Respond strictly with a valid JSON array matching the requested schema.`;
       `AGENT 2 — INTELLIGENCE ANALYST: Gemini analysis error (${err.message}), falling back to deterministic synthesis.`,
       'IntelligenceAnalystAgent'
     );
-    const fallback = analyzeEvidenceHeuristically(bundle, handoff, missionId);
+    const fallback = analyzeEvidenceHeuristically(bundle, handoff, missionId, context);
     logAnalystSummary(fallback);
     return fallback;
   }
 }
 
-function logAnalystSummary(result: AnalystResult) {
+function logAnalystSummary(result: ExtendedAnalystResult) {
   store.addLog(
     'SUCCESS',
     `AGENT 2 — INTELLIGENCE ANALYST: Analyzed ${result.evidenceAnalyzedCount} live evidence records under Plan [${result.planId}].`,
@@ -420,6 +481,13 @@ function logAnalystSummary(result: AnalystResult) {
     `AGENT 2 — INTELLIGENCE ANALYST: Ranked findings by strategic impact -> ${result.rankedImpacts.criticalCount} Critical, ${result.rankedImpacts.highCount} High, ${result.rankedImpacts.mediumCount} Medium.`,
     'IntelligenceAnalystAgent'
   );
+  if (result.rejectedFindings && result.rejectedFindings.length > 0) {
+    store.addLog(
+      'WARNING',
+      `AGENT 2 — INTELLIGENCE ANALYST: Filtered out ${result.rejectedFindings.length} irrelevant evidence records to protect intelligence quality.`,
+      'IntelligenceAnalystAgent'
+    );
+  }
   store.addLog(
     'SUCCESS',
     `AGENT 2 — INTELLIGENCE ANALYST: Actionable intelligence synthesized (${result.findings.length} verified findings with source provenance attached).`,

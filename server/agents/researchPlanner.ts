@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { AgentHandoff, ResearchPlan, ToolName } from '../../src/types';
+import { AgentHandoff, ResearchContext, ResearchPlan, ToolName } from '../../src/types';
 import { store } from '../store';
 
 export interface PlanObjectiveInput {
@@ -12,24 +12,105 @@ export interface PlanObjectiveInput {
   researchInterests?: string[];
   preferredSources?: string[];
   objective?: string;
+  context?: ResearchContext;
 }
 
-// Fallback rule-based planner if Gemini API is unavailable
+/**
+ * Checks for negative exclusions (e.g. "do not search github", "no arxiv", "academic only")
+ */
+function parseExclusionsAndInclusions(text: string): {
+  excludeGithub: boolean;
+  excludeArxiv: boolean;
+  forceGithubOnly: boolean;
+  forceArxivOnly: boolean;
+} {
+  const lower = text.toLowerCase();
+  const excludeGithub =
+    lower.includes('do not search github') ||
+    lower.includes("don't search github") ||
+    lower.includes('no github') ||
+    lower.includes('without github') ||
+    lower.includes('exclude github') ||
+    lower.includes('academic only') ||
+    lower.includes('papers only') ||
+    lower.includes('arxiv only');
+
+  const excludeArxiv =
+    lower.includes('do not search arxiv') ||
+    lower.includes("don't search arxiv") ||
+    lower.includes('no arxiv') ||
+    lower.includes('without arxiv') ||
+    lower.includes('do not search academic') ||
+    lower.includes("don't search academic") ||
+    lower.includes('exclude papers') ||
+    lower.includes('exclude arxiv') ||
+    lower.includes('github only') ||
+    lower.includes('code only') ||
+    lower.includes('open source only') ||
+    lower.includes('open-source only') ||
+    lower.includes('repos only');
+
+  const forceGithubOnly =
+    (lower.includes('github') || lower.includes('open-source') || lower.includes('implementation') || lower.includes('code')) &&
+    !lower.includes('paper') &&
+    !lower.includes('arxiv') &&
+    !lower.includes('academic') &&
+    !lower.includes('compare');
+
+  const forceArxivOnly =
+    (lower.includes('arxiv') || lower.includes('paper') || lower.includes('academic') || lower.includes('literature')) &&
+    !lower.includes('github') &&
+    !lower.includes('code') &&
+    !lower.includes('implementation') &&
+    !lower.includes('repo') &&
+    !lower.includes('compare');
+
+  return {
+    excludeGithub,
+    excludeArxiv,
+    forceGithubOnly: forceGithubOnly || excludeArxiv,
+    forceArxivOnly: forceArxivOnly || excludeGithub
+  };
+}
+
+/**
+ * Fallback rule-based planner if Gemini API is unavailable or for deterministic fallbacks.
+ * Incorporates short-term/long-term context to resolve pronouns and follow-up references.
+ */
 export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan: ResearchPlan; handoff: AgentHandoff } {
   const rawText = (input.objective || input.description || input.topic || input.name || 'AI Research').trim();
   const lower = rawText.toLowerCase();
+  const ctx = input.context;
+
+  const { excludeGithub, excludeArxiv } = parseExclusionsAndInclusions(rawText);
+
+  // Check if this query is a follow-up referring to previous context
+  const isFollowUp =
+    lower.includes('these techniques') ||
+    lower.includes('this technique') ||
+    lower.includes('compare this with') ||
+    lower.includes('compare with') ||
+    lower.includes('now find') ||
+    lower.includes('these models') ||
+    lower.includes('the above') ||
+    lower.includes('these architectures') ||
+    Boolean(ctx && ctx.conversationSteps && ctx.conversationSteps.length > 0 && (lower.startsWith('now ') || lower.startsWith('also ')));
+
+  // Inherit previous entities and key concepts if follow-up
+  const previousQuery = ctx?.currentQuery || ctx?.previousQueries?.[ctx.previousQueries.length - 1] || '';
+  const previousEntities = ctx?.targetEntities || [];
+  const previousFindings = ctx?.importantFindings || [];
 
   // Determine intent
-  const hasAcademic =
+  const hasAcademicKeyword =
     lower.includes('academic') ||
     lower.includes('paper') ||
     lower.includes('research') ||
     lower.includes('arxiv') ||
     lower.includes('theory') ||
-    lower.includes('algorithm') ||
     lower.includes('literature');
 
-  const hasCode =
+  const hasCodeKeyword =
     lower.includes('github') ||
     lower.includes('open-source') ||
     lower.includes('open source') ||
@@ -39,41 +120,87 @@ export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan
     lower.includes('framework') ||
     lower.includes('library');
 
-  const isComparison =
+  const isExplicitComparison =
     lower.includes('compare') ||
     lower.includes('comparing') ||
     lower.includes('versus') ||
     lower.includes('vs') ||
-    lower.includes('benchmark') ||
-    (hasAcademic && hasCode);
+    lower.includes('benchmark');
 
   let intentType: ResearchPlan['intentType'] = 'exploratory';
-  const selectedTools: ToolName[] = [];
+  let selectedTools: ToolName[] = [];
 
-  if (isComparison || (hasAcademic && hasCode)) {
-    intentType = 'comparative';
-    selectedTools.push('search_arxiv', 'search_github');
-  } else if (hasAcademic) {
+  if (excludeGithub && !excludeArxiv) {
     intentType = 'academic_only';
-    selectedTools.push('search_arxiv');
-  } else if (hasCode) {
+    selectedTools = ['search_arxiv'];
+  } else if (excludeArxiv && !excludeGithub) {
     intentType = 'opensource_only';
-    selectedTools.push('search_github');
+    selectedTools = ['search_github'];
+  } else if (isExplicitComparison || (hasAcademicKeyword && hasCodeKeyword)) {
+    intentType = 'comparative';
+    selectedTools = ['search_arxiv', 'search_github'];
+  } else if (hasCodeKeyword && !hasAcademicKeyword) {
+    intentType = 'opensource_only';
+    selectedTools = ['search_github'];
+  } else if (hasAcademicKeyword && !hasCodeKeyword) {
+    intentType = 'academic_only';
+    selectedTools = ['search_arxiv'];
   } else {
+    // Default exploratory
     intentType = 'exploratory';
-    selectedTools.push('search_arxiv', 'search_github');
+    selectedTools = ['search_arxiv', 'search_github'];
   }
 
-  // Extract core keywords by stripping filler words
-  const cleanKeywords = rawText
-    .replace(/^(research|compare|analyze|investigate|find|look for|track|study|search for)\s+/i, '')
-    .replace(/(by comparing|with|for|recent|latest|academic|research papers|open-source|github implementations|state of the art)\b/gi, ' ')
+  // Construct search terms incorporating context if follow-up
+  let cleanKeywords = rawText
+    .replace(/^(research|compare|analyze|investigate|find|look for|track|study|search for|now find|now search|now compare)\s+/i, '')
+    .replace(/(by comparing|with|for|recent|latest|academic|research papers|open-source|github implementations|state of the art|do not search github|do not search arxiv|do not search academic papers)\b/gi, ' ')
     .replace(/[^\w\s-]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 2)
-    .slice(0, 5)
     .join(' ')
-    .trim() || 'transformer LLM inference optimization';
+    .trim();
+
+  // If follow-up mentions "these techniques", blend in the core concepts from previous research
+  if (isFollowUp && previousQuery) {
+    const prevClean = previousQuery
+      .replace(/[^\w\s-]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !['find', 'recent', 'academic', 'research', 'papers', 'about', 'with', 'open-source', 'github'].includes(w.toLowerCase()))
+      .slice(0, 4)
+      .join(' ');
+
+    if (prevClean && !cleanKeywords.includes(prevClean)) {
+      cleanKeywords = `${cleanKeywords} ${prevClean}`.trim();
+    }
+  }
+
+  if (!cleanKeywords) {
+    cleanKeywords = 'transformer inference optimization';
+  }
+
+  // Target Entities resolution
+  let targetEntities: Array<{ name: string; ticker?: string; role: string; type?: string }> = (input.companies || []).map((c) => ({ name: c, role: 'Target Enterprise' }));
+  if (targetEntities.length === 0 && previousEntities.length > 0 && isFollowUp) {
+    targetEntities = previousEntities;
+  }
+  if (targetEntities.length === 0) {
+    if (lower.includes('nvidia') && lower.includes('amd')) {
+      targetEntities = [
+        { name: 'NVIDIA Corp.', ticker: 'NVDA', role: 'AI Accelerator & GPU Market Leader' },
+        { name: 'AMD', ticker: 'AMD', role: 'MI300/MI350 Instinct Accelerators' }
+      ];
+    } else if (lower.includes('nvidia') || lower.includes('nvda')) {
+      targetEntities = [{ name: 'NVIDIA Corp.', ticker: 'NVDA', role: 'AI Accelerator & GPU Market Leader' }];
+    } else if (lower.includes('amd')) {
+      targetEntities = [{ name: 'AMD', ticker: 'AMD', role: 'MI300/MI350 Instinct Accelerators' }];
+    } else {
+      targetEntities = [
+        { name: 'AI Research Community', role: 'Algorithm & Model Architecture Design' },
+        { name: 'Open-Source AI Systems', role: 'Inference Engine & Kernel Implementations' }
+      ];
+    }
+  }
 
   const planId = `PLAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
   const handoffId = `HND-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
@@ -81,7 +208,9 @@ export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan
   const plan: ResearchPlan = {
     planId,
     objective: rawText,
-    intent: `Investigate and analyze ${rawText}`,
+    intent: isFollowUp
+      ? `Follow-up research: Investigate "${rawText}" using established context from prior research on "${previousQuery || 'prior step'}".`
+      : `Investigate and analyze ${rawText}`,
     intentType,
     selectedTools,
     toolQueries: {
@@ -93,10 +222,7 @@ export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan
       'Transformer Architecture Enhancements',
       'Hardware-Software Co-Design & Quantization'
     ],
-    targetEntities: [
-      { name: 'NVIDIA', ticker: 'NVDA', role: 'AI Accelerator & GPU Computing' },
-      { name: 'Open-Source AI Community', role: 'Framework & Kernel Implementations' }
-    ],
+    targetEntities,
     searchVectors: ['ArXiv Preprint Repositories', 'GitHub Open Source Commits', 'Tech Research Disclosures'],
     hypotheses: [
       'Open-source implementations rapidly adapt academic kernel designs for production inference.',
@@ -111,7 +237,9 @@ export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan
     toAgent: 'IntelligenceAnalystAgent',
     timestamp: new Date().toISOString(),
     plan,
-    instructionsForAnalyst: `Analyze live evidence collected for objective "${rawText}". Cross-correlate academic papers with open-source implementations, identify strategic impact, and synthesize actionable findings with source provenance.`,
+    instructionsForAnalyst: isFollowUp
+      ? `This is a follow-up research task continuing from prior research on "${previousQuery}". Analyze the new live evidence from [${selectedTools.join(', ')}] in conjunction with prior findings, and evaluate cross-step progression.`
+      : `Analyze live evidence collected for objective "${rawText}". Cross-correlate findings, identify strategic impact, and synthesize actionable intelligence with source provenance.`,
     status: 'dispatched'
   };
 
@@ -120,17 +248,24 @@ export function generateHeuristicResearchPlan(input: PlanObjectiveInput): { plan
 
 /**
  * AGENT 1: RESEARCH PLANNER
- * Receives the research objective, classifies intent, selects research tools,
- * generates optimized queries tailored to each tool, and outputs a structured
- * ResearchPlan + AgentHandoff payload.
+ * Receives the research objective and optional conversation/mission context, classifies intent,
+ * selects research tools truthfully, generates queries tailored to each tool, and outputs
+ * a structured ResearchPlan + AgentHandoff payload.
  */
 export async function executeResearchPlannerAgent(
   input: PlanObjectiveInput
 ): Promise<{ plan: ResearchPlan; handoff: AgentHandoff }> {
   const objective = (input.objective || input.description || input.topic || input.name || '').trim();
   const apiKey = process.env.GEMINI_API_KEY;
+  const ctx = input.context;
 
-  store.addLog('INFO', `AGENT 1 — RESEARCH PLANNER: Initiating research planning for objective: "${objective.slice(0, 100)}..."`, 'ResearchPlannerAgent');
+  store.addLog(
+    'INFO',
+    `AGENT 1 — RESEARCH PLANNER: Initiating research planning for objective: "${objective.slice(0, 100)}..."`,
+    'ResearchPlannerAgent'
+  );
+
+  const { excludeGithub, excludeArxiv } = parseExclusionsAndInclusions(objective);
 
   if (!apiKey || !objective) {
     store.addLog('SYSTEM', 'AGENT 1 — RESEARCH PLANNER: Using deterministic heuristic planning engine.', 'ResearchPlannerAgent');
@@ -142,20 +277,43 @@ export async function executeResearchPlannerAgent(
   try {
     const ai = new GoogleGenAI({ apiKey });
 
+    // Format Context for Gemini
+    let contextSummary = 'None (Fresh mission)';
+    if (ctx && ctx.conversationSteps && ctx.conversationSteps.length > 0) {
+      const stepLines = ctx.conversationSteps
+        .slice(-3)
+        .map((s, idx) => `  - Step ${s.stepNumber}: "${s.query}" (Tools: ${s.selectedTools.join(', ')}; ${s.findingsCount} findings)`)
+        .join('\n');
+
+      const entityNames = ctx.targetEntities.map((e) => e.name).join(', ');
+      const topFindings = (ctx.importantFindings || []).slice(0, 3).map((f) => `"${f.title}" (${f.source})`).join('; ');
+
+      contextSummary = `
+Active Mission ID: ${ctx.missionId}
+Previous Steps:
+${stepLines}
+Known Entities: ${entityNames || 'None yet'}
+Prior Key Findings: ${topFindings || 'None yet'}
+`;
+    }
+
     const prompt = `You are AGENT 1: RESEARCH PLANNER for Hackverse Intel, an autonomous AI research & competitive intelligence platform.
 
 Your mission:
-1. Thoroughly parse the user's research objective: "${objective}"
-2. Identify the core intent: Is it comparative (e.g. comparing academic research with open-source code), academic-only, open-source-only, or general exploratory?
-3. Decide which external research tools MUST be invoked:
+1. Parse the user's research objective: "${objective}"
+2. Review the historical mission context if available:
+${contextSummary}
+3. If the user's query refers to previous steps (e.g. "these techniques", "now compare this with AMD", "find implementations of the above"), resolve what "these" / "this" refers to using the prior context.
+4. Core Tool Selection Rules:
    - "search_arxiv": Academic papers, scientific preprints, theoretical algorithms, mathematical formulations.
    - "search_github": Open-source repositories, software libraries, code implementations, kernels, benchmarks.
-   - IMPORTANT: If the user mentions comparing papers with code, research with implementations, or both academic and open-source, you MUST select BOTH ["search_arxiv", "search_github"].
-4. Generate HIGHLY TARGETED, OPTIMIZED queries for each tool:
-   - For arXiv: Clean academic terms without conversational filler (e.g., "transformer inference optimization" or "LLM quantization flashattention").
-   - For GitHub: Keyword search query suitable for repository discovery (e.g., "llm inference optimization" or "transformer acceleration").
-5. Identify target entities/companies (e.g., NVIDIA, AMD, PyTorch, vLLM), core research focus areas, and key analytical hypotheses.
-6. Provide specific analytical instructions for AGENT 2 (Intelligence Analyst Agent).
+   - STRICT CONSTRAINT: If the user says "do not search github", "no github", "papers only", you MUST NOT select "search_github".
+   - STRICT CONSTRAINT: If the user says "do not search arxiv", "no arxiv", "github only", "code only", you MUST NOT select "search_arxiv".
+   - If the user asks for both academic and open-source or comparative analysis without exclusions, select BOTH ["search_arxiv", "search_github"].
+5. Generate HIGHLY TARGETED, OPTIMIZED queries for each tool:
+   - For arXiv: Clean academic terms without conversational filler (e.g., "transformer inference optimization" or "vLLM flashattention kernel").
+   - For GitHub: Keyword search query suitable for repository discovery (e.g., "transformer inference optimization" or "vllm tensorrt").
+6. Provide specific instructions for AGENT 2 (Intelligence Analyst Agent).
 
 Respond strictly with a valid JSON object matching the requested schema.`;
 
@@ -215,19 +373,31 @@ Respond strictly with a valid JSON object matching the requested schema.`;
     const text = response.text?.trim() || '{}';
     const parsed = JSON.parse(text);
 
-    // Safeguard tool selection: if objective is comparative, guarantee both tools are included
     let selectedTools: ToolName[] = Array.isArray(parsed.selectedTools) ? parsed.selectedTools : [];
-    const lowerObj = objective.toLowerCase();
-    if (
-      (lowerObj.includes('academic') || lowerObj.includes('paper') || lowerObj.includes('research')) &&
-      (lowerObj.includes('github') || lowerObj.includes('open-source') || lowerObj.includes('code') || lowerObj.includes('implementation'))
-    ) {
-      if (!selectedTools.includes('search_arxiv')) selectedTools.push('search_arxiv');
-      if (!selectedTools.includes('search_github')) selectedTools.push('search_github');
+
+    // Apply strict negative filter to guarantee truthfulness
+    if (excludeGithub) {
+      selectedTools = selectedTools.filter((t) => t !== 'search_github');
+    }
+    if (excludeArxiv) {
+      selectedTools = selectedTools.filter((t) => t !== 'search_arxiv');
     }
 
+    // If empty after exclusions, choose the non-excluded one
     if (selectedTools.length === 0) {
-      selectedTools = ['search_arxiv', 'search_github'];
+      if (!excludeArxiv && excludeGithub) selectedTools = ['search_arxiv'];
+      else if (!excludeGithub && excludeArxiv) selectedTools = ['search_github'];
+      else selectedTools = ['search_arxiv', 'search_github'];
+    }
+
+    // Synchronize intentType with actual selected tools
+    let intentType: ResearchPlan['intentType'] = (parsed.intentType as any) || 'exploratory';
+    if (selectedTools.includes('search_arxiv') && selectedTools.includes('search_github')) {
+      intentType = 'comparative';
+    } else if (selectedTools.includes('search_arxiv') && !selectedTools.includes('search_github')) {
+      intentType = 'academic_only';
+    } else if (selectedTools.includes('search_github') && !selectedTools.includes('search_arxiv')) {
+      intentType = 'opensource_only';
     }
 
     const planId = `PLAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
@@ -237,7 +407,7 @@ Respond strictly with a valid JSON object matching the requested schema.`;
       planId,
       objective,
       intent: parsed.intent || `Investigate ${objective}`,
-      intentType: (parsed.intentType as ResearchPlan['intentType']) || 'comparative',
+      intentType,
       selectedTools,
       toolQueries: {
         search_arxiv: selectedTools.includes('search_arxiv') ? (parsed.arxivQuery || parsed.intent || objective) : undefined,
@@ -271,7 +441,11 @@ Respond strictly with a valid JSON object matching the requested schema.`;
     logPlannerSummary(plan, handoff);
     return { plan, handoff };
   } catch (err: any) {
-    store.addLog('WARNING', `AGENT 1 — RESEARCH PLANNER: Gemini planning error (${err.message}), falling back to deterministic planning.`, 'ResearchPlannerAgent');
+    store.addLog(
+      'WARNING',
+      `AGENT 1 — RESEARCH PLANNER: Gemini planning error (${err.message}), falling back to deterministic planning.`,
+      'ResearchPlannerAgent'
+    );
     const fallback = generateHeuristicResearchPlan(input);
     logPlannerSummary(fallback.plan, fallback.handoff);
     return fallback;

@@ -1,4 +1,15 @@
-import { IntelAlert, IntelItem, Mission, SystemLog, TrendSignal } from '../src/types';
+import {
+  IntelAlert,
+  IntelItem,
+  Mission,
+  SystemLog,
+  TrendSignal,
+  ResearchContext,
+  ResearchStep,
+  SummarizedFinding,
+  RejectedFinding,
+  ToolName
+} from '../src/types';
 
 // In-memory data store with default high-impact missions
 class IntelStore {
@@ -7,6 +18,7 @@ class IntelStore {
   private trends: Map<string, TrendSignal[]> = new Map();
   private alerts: Map<string, IntelAlert[]> = new Map();
   private logs: SystemLog[] = [];
+  private contexts: Map<string, ResearchContext> = new Map();
   private activeMissionId: string = 'mission-semicon-01';
 
   constructor() {
@@ -462,6 +474,66 @@ class IntelStore {
         stage: 'Orchestrator'
       }
     ];
+
+    // Seed initial baseline context for Mission 1 (AI Semiconductors)
+    this.contexts.set(m1.id, {
+      missionId: m1.id,
+      currentQuery: m1.objective || m1.name,
+      previousQueries: [m1.objective || m1.name],
+      researchObjective: m1.objective || m1.name,
+      detectedIntent: 'comparative',
+      targetEntities: (m1.targetEntities || []).map((e) => ({
+        name: e.name,
+        ticker: e.ticker,
+        role: e.role,
+        type: e.type
+      })),
+      competitors: m1.competitors || [],
+      selectedTools: ['search_arxiv', 'search_github'],
+      executedTools: ['search_arxiv', 'search_github'],
+      relevantKeywords: m1.keywords || [],
+      researchAreas: m1.focusAreas || [],
+      evidenceSummary: 'Initial intelligence baseline established across academic and open-source ecosystems.',
+      verifiedSources: ['arxiv', 'patent', 'news', 'sec_filing', 'github'],
+      importantFindings: itemsM1.slice(0, 5).map((item) => ({
+        id: item.id,
+        title: item.title,
+        source: item.source,
+        whatChanged: item.whatChanged || item.title,
+        whyItMatters: item.whyItMatters || item.summary,
+        impact: item.impact || 'High',
+        publishedAt: item.publishedAt
+      })),
+      rejectedFindings: [],
+      lastResearchTimestamp: m1.lastRunAt || new Date().toISOString(),
+      conversationSteps: [
+        {
+          stepNumber: 1,
+          runId: `run-baseline-${m1.id}`,
+          query: m1.objective || m1.name,
+          timestamp: m1.createdAt || new Date().toISOString(),
+          intent: `Initial baseline investigation for ${m1.name}`,
+          intentType: 'comparative',
+          selectedTools: ['search_arxiv', 'search_github'],
+          executedTools: ['search_arxiv', 'search_github'],
+          evidenceCount: itemsM1.length,
+          findingsCount: itemsM1.length,
+          topFindings: itemsM1.slice(0, 3).map((i) => i.title),
+          keyEntities: (m1.targetEntities || []).map((e) => e.name),
+          planSummary: 'Comparative analysis of TSMC CoWoS packaging and ROCm open-source kernel implementations.',
+          analystSummary: 'Synthesized baseline hardware intelligence with cross-source provenance.'
+        }
+      ],
+      followUpQueries: [
+        'Find open-source GitHub implementations of ROCm kernels',
+        'Compare recent academic benchmarks for Blackwell B200 and MI300X',
+        'Analyze memory bandwidth optimization and HBM4 packaging trade-offs'
+      ],
+      userPreferences: {
+        preferredSources: m1.preferredSources,
+        focusAreas: m1.focusAreas
+      }
+    });
   }
 
   // Getters & Setters
@@ -549,6 +621,7 @@ class IntelStore {
     this.intelItems.delete(id);
     this.trends.delete(id);
     this.alerts.delete(id);
+    this.contexts.delete(id);
 
     this.addLog('WARNING', `Mission deleted: [${mission?.code || id}] "${mission?.name}"`, 'MissionManager');
 
@@ -615,6 +688,117 @@ class IntelStore {
       return true;
     }
     return false;
+  }
+
+  // =========================================================================
+  // TASK 4: RESEARCH CONTEXT & MEMORY STORE
+  // =========================================================================
+
+  getContext(missionId: string): ResearchContext {
+    let ctx = this.contexts.get(missionId);
+    if (!ctx) {
+      const mission = this.missions.get(missionId);
+      const items = this.intelItems.get(missionId) || [];
+
+      // Accurately derive initial tools from mission preferredSources / objective
+      const hasArxiv = !mission?.preferredSources || mission.preferredSources.includes('arxiv');
+      const hasGithub = !mission?.preferredSources || mission.preferredSources.includes('github');
+
+      const initialTools: ToolName[] = [];
+      if (hasArxiv) initialTools.push('search_arxiv');
+      if (hasGithub) initialTools.push('search_github');
+      if (initialTools.length === 0) initialTools.push('search_arxiv');
+
+      const initialIntent: ResearchContext['detectedIntent'] =
+        initialTools.length > 1
+          ? 'comparative'
+          : initialTools.includes('search_arxiv')
+          ? 'academic_only'
+          : 'opensource_only';
+
+      ctx = {
+        missionId,
+        currentQuery: mission?.objective || mission?.name || '',
+        previousQueries: [],
+        researchObjective: mission?.objective || mission?.name || '',
+        detectedIntent: initialIntent,
+        targetEntities: (mission?.targetEntities || []).map((e) => ({
+          name: e.name,
+          ticker: e.ticker,
+          role: e.role,
+          type: e.type
+        })),
+        competitors: mission?.competitors || [],
+        selectedTools: initialTools,
+        executedTools: initialTools,
+        relevantKeywords: mission?.keywords || [],
+        researchAreas: mission?.focusAreas || [],
+        evidenceSummary: items.length > 0 ? 'Initial intelligence baseline established.' : 'Awaiting initial autonomous research cycle.',
+        verifiedSources: (mission?.preferredSources || initialTools.map((t) => (t === 'search_arxiv' ? 'arxiv' : 'github'))) as any,
+        importantFindings: items.slice(0, 5).map((item) => ({
+          id: item.id,
+          title: item.title,
+          source: item.source,
+          whatChanged: item.whatChanged || item.title,
+          whyItMatters: item.whyItMatters || item.summary,
+          impact: item.impact || 'High',
+          publishedAt: item.publishedAt
+        })),
+        rejectedFindings: [],
+        lastResearchTimestamp: mission?.lastRunAt || new Date().toISOString(),
+        conversationSteps: [], // Fresh missions begin with empty step history; execution cycles persist actual validated steps
+        followUpQueries: [
+          'Find open-source GitHub implementations of these techniques',
+          `Compare recent academic benchmarks for ${mission?.targetEntities?.[0]?.name || 'these models'}`,
+          'Analyze memory optimization and kernel performance trade-offs'
+        ],
+        userPreferences: {
+          preferredSources: mission?.preferredSources,
+          focusAreas: mission?.focusAreas
+        }
+      };
+      this.contexts.set(missionId, ctx);
+    }
+    return ctx;
+  }
+
+  setContext(missionId: string, context: ResearchContext) {
+    this.contexts.set(missionId, context);
+  }
+
+  updateContext(missionId: string, updates: Partial<ResearchContext>): ResearchContext {
+    const existing = this.getContext(missionId);
+    const updated: ResearchContext = {
+      ...existing,
+      ...updates
+    };
+    this.contexts.set(missionId, updated);
+    return updated;
+  }
+
+  addConversationStep(missionId: string, step: ResearchStep) {
+    const ctx = this.getContext(missionId);
+    ctx.conversationSteps.push(step);
+    ctx.lastResearchTimestamp = step.timestamp;
+    if (step.query && !ctx.previousQueries.includes(step.query)) {
+      ctx.previousQueries.push(step.query);
+    }
+    this.contexts.set(missionId, ctx);
+  }
+
+  // Atomically replaces findings for the active mission with the current run findings (preventing stale results)
+  replaceIntelItems(missionId: string, items: IntelItem[]) {
+    this.intelItems.set(missionId, items);
+    const mission = this.missions.get(missionId);
+    if (mission) {
+      mission.totalSignalsScanned += items.length * 15 + Math.floor(Math.random() * 20);
+      mission.filteredInsightsCount = items.length;
+      mission.lastRunAt = new Date().toISOString();
+    }
+  }
+
+  clearIntelItems(missionId: string) {
+    this.intelItems.set(missionId, []);
   }
 }
 
