@@ -417,6 +417,7 @@ export default function App() {
           selectedEntity={selectedEntity}
           onSelectItem={setSelectedItem}
           onOpenReport={handleOpenReport}
+          activeMissionId={activeMission?.id}
           activeMissionName={activeMission?.name || 'AI Semiconductor Intelligence'}
           activeMissionTopic={activeMission?.topic || activeMission?.name}
           activeMissionDescription={activeMission?.description}

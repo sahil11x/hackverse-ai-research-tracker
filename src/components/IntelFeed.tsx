@@ -28,8 +28,10 @@ import {
 import { ResearchInputCard } from './ResearchInputCard';
 import { ResearchContextPanel } from './ResearchContextPanel';
 import { AgentGraphExecutionPanel } from './AgentGraphExecutionPanel';
+import { EvaluationBenchmarkingPanel } from './EvaluationBenchmarkingPanel';
 import { AiWorkingState } from './AiWorkingState';
 import { EvidenceModal } from './EvidenceModal';
+import { BarChart3, Scale, ShieldCheck, Cpu, Database } from 'lucide-react';
 
 interface IntelFeedProps {
   items: IntelItem[];
@@ -39,6 +41,7 @@ interface IntelFeedProps {
   selectedEntity: string | null;
   onSelectItem: (item: IntelItem) => void;
   onOpenReport: () => void;
+  activeMissionId?: string;
   activeMissionName?: string;
   activeMissionTopic?: string;
   activeMissionDescription?: string;
@@ -63,6 +66,7 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
   selectedEntity,
   onSelectItem,
   onOpenReport,
+  activeMissionId,
   activeMissionName = 'AI Semiconductor Intelligence',
   activeMissionTopic,
   activeMissionDescription,
@@ -78,6 +82,7 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
   graphExecution,
   onRunAdversarialTest
 }) => {
+  const [activeMainView, setActiveMainView] = useState<'FEED' | 'GRAPH' | 'MEMORY' | 'EVALUATION'>('FEED');
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -263,10 +268,72 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
 
   return (
     <section className="flex-1 flex flex-col bg-[#0A0A0B] overflow-hidden min-w-0">
+      {/* View Switcher Bar */}
+      <div className="border-b border-[#27272A] bg-[#121214] px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-mono">
+          <button
+            id="view-feed-btn"
+            onClick={() => setActiveMainView('FEED')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 ${
+              activeMainView === 'FEED'
+                ? 'bg-[#00FF9C]/15 text-[#00FF9C] border border-[#00FF9C]/30 shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-[#1C1C1F]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Findings & Signals ({items.length})
+          </button>
+
+          <button
+            id="view-graph-btn"
+            onClick={() => setActiveMainView('GRAPH')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 ${
+              activeMainView === 'GRAPH'
+                ? 'bg-[#00FF9C]/15 text-[#00FF9C] border border-[#00FF9C]/30 shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-[#1C1C1F]'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            Autonomous Graph & Trace
+          </button>
+
+          <button
+            id="view-memory-btn"
+            onClick={() => setActiveMainView('MEMORY')}
+            className={`px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5 ${
+              activeMainView === 'MEMORY'
+                ? 'bg-[#00FF9C]/15 text-[#00FF9C] border border-[#00FF9C]/30 shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-[#1C1C1F]'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5" />
+            Working Memory ({context?.conversationSteps.length || 0})
+          </button>
+
+          <button
+            id="view-evaluation-btn"
+            onClick={() => setActiveMainView('EVALUATION')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5 ${
+              activeMainView === 'EVALUATION'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/40 border border-indigo-500/30'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Task 6: Evaluation & Benchmarking
+          </button>
+        </div>
+
+        <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-slate-400">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>SYSTEM READY</span>
+        </div>
+      </div>
+
       {/* Scrollable Center Content */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-7 space-y-6 max-w-5xl mx-auto w-full">
         {/* 1. PRIMARY RESEARCH INPUT (Supports Follow-Up & Context Ingestion) */}
-        {onStartResearch && (
+        {onStartResearch && activeMainView !== 'EVALUATION' && (
           <ResearchInputCard
             onStartResearch={onStartResearch}
             isWorking={isWorkingScan}
@@ -277,9 +344,32 @@ export const IntelFeed: React.FC<IntelFeedProps> = ({
         {/* 2. AI WORKING PROGRESS STATE */}
         {isWorkingScan ? (
           <AiWorkingState currentTopic={activeMissionTopic || activeMissionName} />
+        ) : activeMainView === 'EVALUATION' ? (
+          /* TASK 6: EVALUATION & BENCHMARKING PANEL */
+          <EvaluationBenchmarkingPanel activeMissionId={activeMissionId} />
+        ) : activeMainView === 'GRAPH' ? (
+          /* TASK 5: AUTONOMOUS GRAPH PANEL */
+          <AgentGraphExecutionPanel
+            graphExecution={graphExecution}
+            onRunAdversarialTest={onRunAdversarialTest}
+            isLoading={isWorkingScan}
+          />
+        ) : activeMainView === 'MEMORY' ? (
+          /* TASK 4: CONTEXT & MEMORY PANEL */
+          context ? (
+            <ResearchContextPanel
+              context={context}
+              isLoading={isWorkingScan}
+              onSelectFollowUp={(suggestedQuery) => onStartResearch && onStartResearch(suggestedQuery, true)}
+            />
+          ) : (
+            <div className="p-8 text-center text-slate-400 bg-slate-900 border border-slate-800 rounded-xl">
+              No active research context recorded yet. Run a research cycle to build memory.
+            </div>
+          )
         ) : (
           <>
-            {/* 3. TASK 5: AUTONOMOUS GRAPH ORCHESTRATION PANEL */}
+            {/* 3. TASK 5: AUTONOMOUS GRAPH ORCHESTRATION PANEL (Visible in Overview Feed) */}
             <AgentGraphExecutionPanel
               graphExecution={graphExecution}
               onRunAdversarialTest={onRunAdversarialTest}

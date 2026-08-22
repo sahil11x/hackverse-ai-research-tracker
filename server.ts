@@ -8,6 +8,8 @@ import { expandObjectiveIntoQueries } from './server/agents/queryPlanner';
 import { parseResearchPromptWithGemini } from './server/agents/researchChatbot';
 import { runAutonomousMissionCycle } from './server/engine';
 import { store } from './server/store';
+import { evaluationEngine } from './server/evaluation/engine';
+import { EVALUATION_SCENARIOS } from './server/evaluation/scenarios';
 import { Mission } from './src/types';
 
 async function startServer() {
@@ -283,6 +285,93 @@ async function startServer() {
     } catch (err: any) {
       console.error('Adversarial test error:', err);
       res.status(500).json({ error: err.message || 'Adversarial execution error' });
+    }
+  });
+
+  // ============================================================================
+  // TASK 6: EVALUATION & BENCHMARKING API ENDPOINTS
+  // ============================================================================
+
+  // Get Latest Evaluation Report
+  app.get('/api/evaluations/latest', async (req, res) => {
+    try {
+      const missionId = (req.query.missionId as string) || store.getActiveMissionId();
+      let latest = store.getLatestEvaluation(missionId);
+      if (!latest) {
+        // Automatically execute initial benchmark suite if none exists yet
+        latest = await evaluationEngine.executeFullSuite(missionId);
+      }
+      res.json(latest);
+    } catch (err: any) {
+      console.error('Get latest evaluation error:', err);
+      res.status(500).json({ error: err.message || 'Failed to fetch evaluation report' });
+    }
+  });
+
+  // Get Evaluation History
+  app.get('/api/evaluations/history', (req, res) => {
+    try {
+      const missionId = req.query.missionId as string;
+      const history = store.getEvaluationHistory(missionId);
+      res.json(history);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch evaluation history' });
+    }
+  });
+
+  // Run Full Evaluation Suite (7 Scenarios + Baseline Comparisons + Repeated Reliability)
+  app.post('/api/evaluations/run-suite', async (req, res) => {
+    try {
+      const missionId = req.body?.missionId || store.getActiveMissionId();
+      const report = await evaluationEngine.executeFullSuite(missionId);
+      res.json(report);
+    } catch (err: any) {
+      console.error('Run evaluation suite error:', err);
+      res.status(500).json({ error: err.message || 'Evaluation suite run failed' });
+    }
+  });
+
+  // Run a Single Scenario
+  app.post('/api/evaluations/run-scenario', async (req, res) => {
+    try {
+      const { scenarioId, scenarioType, missionId } = req.body || {};
+      const targetMissionId = missionId || store.getActiveMissionId();
+      const scenario =
+        EVALUATION_SCENARIOS.find((s) => s.id === scenarioId || s.type === scenarioType) ||
+        EVALUATION_SCENARIOS[0];
+
+      const scenarioEval = await evaluationEngine.executeScenario(scenario, targetMissionId);
+      res.json(scenarioEval);
+    } catch (err: any) {
+      console.error('Run single scenario error:', err);
+      res.status(500).json({ error: err.message || 'Single scenario run failed' });
+    }
+  });
+
+  // Run Repeated Runs for Consistency & Variance Benchmark
+  app.post('/api/evaluations/run-repeated', async (req, res) => {
+    try {
+      const { scenarioId, scenarioType, missionId, iterations = 3 } = req.body || {};
+      const targetMissionId = missionId || store.getActiveMissionId();
+      const scenario =
+        EVALUATION_SCENARIOS.find((s) => s.id === scenarioId || s.type === scenarioType) ||
+        EVALUATION_SCENARIOS[0];
+
+      const summary = await evaluationEngine.executeRepeatedRuns(scenario, targetMissionId, iterations);
+      res.json(summary);
+    } catch (err: any) {
+      console.error('Run repeated scenario error:', err);
+      res.status(500).json({ error: err.message || 'Repeated evaluation run failed' });
+    }
+  });
+
+  // Reset Evaluation Store
+  app.post('/api/evaluations/reset', (req, res) => {
+    try {
+      store.resetEvaluations();
+      res.json({ success: true, message: 'Evaluation store reset successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to reset evaluations' });
     }
   });
 

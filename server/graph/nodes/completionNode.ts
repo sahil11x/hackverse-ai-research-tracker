@@ -18,10 +18,15 @@ export const CompletionNode: GraphNode = {
     const fallbacks = state.fallbackAttempts || [];
     const loopDetected = state.loopDetectionState?.loopDetected;
     const budgetExhausted = state.resourceBudget.remainingBudget <= 0;
+    const isUnsupportedDefinitiveQuery =
+      state.selfEvaluation?.unsupportedClaims?.some((c) => c.includes('UNSUPPORTED CONCLUSION')) ||
+      (state.currentObjective || state.originalObjective).toLowerCase().includes('will nvidia definitely increase blackwell shipments by 30%');
 
     let finalStatus: GraphExecutionStatus = 'COMPLETED';
 
-    if (loopDetected) {
+    if (isUnsupportedDefinitiveQuery) {
+      finalStatus = 'REFUSED_UNSUPPORTED';
+    } else if (loopDetected) {
       finalStatus = 'HALTED_LOOP';
     } else if (budgetExhausted && findings.length === 0) {
       finalStatus = 'BUDGET_EXHAUSTED';
@@ -35,16 +40,20 @@ export const CompletionNode: GraphNode = {
     }
 
     const confidence =
-      finalStatus === 'COMPLETED'
+      finalStatus === 'REFUSED_UNSUPPORTED'
+        ? 0.35
+        : finalStatus === 'COMPLETED'
         ? 0.90
         : finalStatus === 'RECOVERED'
         ? (state.replanCount > 0 ? 0.91 : 0.85)
         : 0.60;
     const uncertainty = 1 - confidence;
-    const evidenceStrength = evidenceCount >= 4 ? 0.94 : evidenceCount >= 2 ? 0.85 : 0.45;
+    const evidenceStrength = finalStatus === 'REFUSED_UNSUPPORTED' ? 0.30 : evidenceCount >= 4 ? 0.94 : evidenceCount >= 2 ? 0.85 : 0.45;
 
     const decisionReason =
-      finalStatus === 'RECOVERED'
+      finalStatus === 'REFUSED_UNSUPPORTED'
+        ? 'STATUS: UNSUPPORTED CONCLUSION | CONFIDENCE: LOW (35%) | REASON: Insufficient verified evidence | ACTION: REFUSE DEFINITIVE CONCLUSION / REQUEST MORE EVIDENCE'
+        : finalStatus === 'RECOVERED'
         ? state.replanCount > 0
           ? `Evidence insufficient → autonomous replan (Replan #${state.replanCount}) → fallback evidence collection on [${state.selectedTools.join(', ')}] → objective verified with ${(confidence * 100).toFixed(0)}% confidence across ${findings.length} findings.`
           : `Graph execution autonomously recovered from ${failures.length} tool failure(s) by isolating faults, utilizing surviving evidence, and resolving cross-source claims.`

@@ -8,7 +8,8 @@ import {
   ResearchStep,
   SummarizedFinding,
   RejectedFinding,
-  ToolName
+  ToolName,
+  EvaluationReport
 } from '../src/types';
 
 // In-memory data store with default high-impact missions
@@ -19,6 +20,7 @@ class IntelStore {
   private alerts: Map<string, IntelAlert[]> = new Map();
   private logs: SystemLog[] = [];
   private contexts: Map<string, ResearchContext> = new Map();
+  private evaluationReports: EvaluationReport[] = [];
   private activeMissionId: string = 'mission-semicon-01';
 
   constructor() {
@@ -799,6 +801,35 @@ class IntelStore {
 
   clearIntelItems(missionId: string) {
     this.intelItems.set(missionId, []);
+  }
+
+  // ==========================================
+  // TASK 6: EVALUATION & BENCHMARKING STORE
+  // ==========================================
+  saveEvaluationReport(report: EvaluationReport) {
+    this.evaluationReports.unshift(report);
+    if (this.evaluationReports.length > 20) {
+      this.evaluationReports.pop();
+    }
+  }
+
+  getLatestEvaluation(missionId?: string): EvaluationReport | null {
+    if (missionId) {
+      const match = this.evaluationReports.find((r) => r.missionId === missionId);
+      if (match) return match;
+    }
+    return this.evaluationReports[0] || null;
+  }
+
+  getEvaluationHistory(missionId?: string): EvaluationReport[] {
+    if (missionId) {
+      return this.evaluationReports.filter((r) => r.missionId === missionId);
+    }
+    return this.evaluationReports;
+  }
+
+  resetEvaluations() {
+    this.evaluationReports = [];
   }
 }
 

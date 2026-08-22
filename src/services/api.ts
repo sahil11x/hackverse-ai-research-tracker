@@ -194,5 +194,59 @@ export const api = {
   async getReport(missionId: string): Promise<{ missionName: string; reportMarkdown: string }> {
     const res = await fetch(`/api/missions/${missionId}/report`);
     return res.json();
+  },
+
+  // ==========================================
+  // TASK 6: EVALUATION & BENCHMARKING APIS
+  // ==========================================
+  async getLatestEvaluation(missionId?: string): Promise<any> {
+    const params = missionId ? `?missionId=${encodeURIComponent(missionId)}` : '';
+    const res = await fetch(`/api/evaluations/latest${params}`);
+    if (!res.ok) throw new Error('Failed to fetch latest evaluation');
+    return res.json();
+  },
+
+  async getEvaluationHistory(missionId?: string): Promise<any[]> {
+    const params = missionId ? `?missionId=${encodeURIComponent(missionId)}` : '';
+    const res = await fetch(`/api/evaluations/history${params}`);
+    if (!res.ok) throw new Error('Failed to fetch evaluation history');
+    return res.json();
+  },
+
+  async runEvaluationSuite(missionId?: string): Promise<any> {
+    const res = await fetch('/api/evaluations/run-suite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ missionId })
+    });
+    if (!res.ok) throw new Error('Failed to execute evaluation suite');
+    return res.json();
+  },
+
+  async runEvaluationScenario(scenarioId: string, missionId?: string): Promise<any> {
+    const res = await fetch('/api/evaluations/run-scenario', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenarioId, missionId })
+    });
+    if (!res.ok) throw new Error('Failed to execute evaluation scenario');
+    return res.json();
+  },
+
+  async runRepeatedScenario(scenarioId: string, iterations = 3, missionId?: string): Promise<any> {
+    const res = await fetch('/api/evaluations/run-repeated', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenarioId, iterations, missionId })
+    });
+    if (!res.ok) throw new Error('Failed to execute repeated scenario');
+    return res.json();
+  },
+
+  async resetEvaluations(): Promise<{ success: boolean; message: string }> {
+    const res = await fetch('/api/evaluations/reset', {
+      method: 'POST'
+    });
+    return res.json();
   }
 };

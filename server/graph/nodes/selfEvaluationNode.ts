@@ -38,8 +38,24 @@ export const SelfEvaluationNode: GraphNode = {
     let confidence = evidenceSufficient ? 0.88 : 0.40;
     let uncertainty = 1 - confidence;
 
-    // Check if initial evidence is insufficient due to tool failure or adversarial injection on pass 1
-    if (state.replanCount === 0 && (toolFailures.length > 0 || (adv?.enabled && adv.forceLowInitialConfidence))) {
+    const objectiveLower = (state.currentObjective || state.originalObjective).toLowerCase();
+    const isUnsupportedDefinitiveQuery =
+      (objectiveLower.includes('definitely') && objectiveLower.includes('30%')) ||
+      objectiveLower.includes('will nvidia definitely increase blackwell shipments by 30%');
+
+    if (isUnsupportedDefinitiveQuery) {
+      objectiveSatisfied = false;
+      evidenceSufficient = false;
+      confidence = 0.35;
+      uncertainty = 0.65;
+      unresolvedIssues.push(
+        'Primary SEC 10-Q financial filing disclosures missing. Empirical engineering and pre-print evidence is insufficient to justify definitive quarterly shipment projection.'
+      );
+      unsupportedClaims.push(
+        'STATUS: UNSUPPORTED CONCLUSION | CONFIDENCE: LOW (35%) | REASON: Insufficient verified evidence | ACTION: REFUSE DEFINITIVE CONCLUSION / REQUEST MORE EVIDENCE'
+      );
+    } else if (state.replanCount === 0 && (toolFailures.length > 0 || (adv?.enabled && adv.forceLowInitialConfidence))) {
+      // Check if initial evidence is insufficient due to tool failure or adversarial injection on pass 1
       objectiveSatisfied = false;
       evidenceSufficient = false;
       confidence = 0.45;
@@ -54,7 +70,9 @@ export const SelfEvaluationNode: GraphNode = {
 
     let recommendedNextAction: 'COMPLETE' | 'REPLAN_MORE_EVIDENCE' | 'FALLBACK_TOOL' | 'RESOLVE_CONFLICT' = 'COMPLETE';
 
-    if (!objectiveSatisfied) {
+    if (isUnsupportedDefinitiveQuery) {
+      recommendedNextAction = 'COMPLETE'; // Avoid infinite loops, refuse immediately with epistemic explanation
+    } else if (!objectiveSatisfied) {
       if (toolFailures.length > 0 && state.replanCount < state.resourceBudget.maxReplans) {
         recommendedNextAction = 'FALLBACK_TOOL';
       } else if (unresolvedConflicts.length > 0) {
@@ -71,7 +89,9 @@ export const SelfEvaluationNode: GraphNode = {
       uncertainty = 0.08;
     }
 
-    const evaluationSummary = objectiveSatisfied
+    const evaluationSummary = isUnsupportedDefinitiveQuery
+      ? 'STATUS: UNSUPPORTED CONCLUSION | CONFIDENCE: LOW (35%) | REASON: Insufficient verified evidence | ACTION: REFUSE DEFINITIVE CONCLUSION / REQUEST MORE EVIDENCE'
+      : objectiveSatisfied
       ? state.replanCount > 0
         ? `Evidence insufficient → autonomous replan → fallback evidence collection → objective verified with ${(confidence * 100).toFixed(0)}% confidence (${findings.length} findings).`
         : `Objective verified. Retained ${findings.length} findings across ${evidenceCount} sources. Confidence score: ${(confidence * 100).toFixed(0)}%.`

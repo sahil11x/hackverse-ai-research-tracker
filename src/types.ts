@@ -376,7 +376,8 @@ export type GraphExecutionStatus =
   | 'RECOVERED'
   | 'NEEDS_REVIEW'
   | 'HALTED_LOOP'
-  | 'BUDGET_EXHAUSTED';
+  | 'BUDGET_EXHAUSTED'
+  | 'REFUSED_UNSUPPORTED';
 
 export interface HypothesisItem {
   id: string;
@@ -598,5 +599,155 @@ export interface GraphState {
   handoff?: AgentHandoff;
   analystResult?: AnalystResult;
   strategicSummary?: string;
+}
+
+// ============================================================================
+// TASK 6: EVALUATION & BENCHMARKING SUB-SYSTEM TYPES
+// ============================================================================
+
+export type ScenarioType =
+  | 'NORMAL'
+  | 'AMBIGUOUS'
+  | 'ADVERSARIAL'
+  | 'CONTRADICTORY'
+  | 'INCOMPLETE'
+  | 'TOOL_FAILURE'
+  | 'UNSUPPORTED_CONCLUSION';
+
+export type EvaluationMetricId =
+  | 'accuracy'
+  | 'task_completion'
+  | 'reliability'
+  | 'robustness'
+  | 'evidence_quality'
+  | 'groundedness'
+  | 'hallucination_rate'
+  | 'recovery_rate'
+  | 'uncertainty_detection'
+  | 'consistency'
+  | 'latency'
+  | 'resource_efficiency'
+  | 'tool_efficiency'
+  | 'evidence_coverage';
+
+export interface EvaluationMetric {
+  id: EvaluationMetricId;
+  name: string;
+  category: 'quality' | 'robustness' | 'efficiency' | 'epistemic';
+  measuredValue: number;
+  unit: '%' | 'ms' | 'score' | 'ratio';
+  scoringMethod: string;
+  supportingEvidence: string;
+  threshold?: number;
+  passed: boolean;
+  confidence: number;
+}
+
+export interface ClaimGroundednessRecord {
+  claimId: string;
+  claimText: string;
+  verdict: 'GROUNDED' | 'PARTIALLY_GROUNDED' | 'UNSUPPORTED' | 'REFUSED';
+  supportingSources: Array<{
+    source: string;
+    title: string;
+    url: string;
+    excerpt: string;
+    confidence: number;
+  }>;
+  groundednessScore: number; // 0 - 100
+  hallucinationFlag: boolean;
+  epistemicReasoning: string;
+}
+
+export interface ScenarioEvaluation {
+  scenarioId: string;
+  scenarioType: ScenarioType;
+  title: string;
+  description: string;
+  query: string;
+  expectedBehavior: string;
+  runsCount: number;
+  passed: boolean;
+  overallScore: number; // 0 - 100
+  confidence: number; // 0 - 1
+  latencyMs: number;
+  recoveryStatus: 'NONE_NEEDED' | 'RECOVERED' | 'FAILED' | 'REFUSED_UNSUPPORTED';
+  replansUsed: number;
+  toolFailuresCount: number;
+  conflictsResolvedCount: number;
+  groundednessScore: number; // 0 - 100
+  hallucinationRate: number; // 0 - 100%
+  uncertaintyScore: number; // 0 - 100
+  nodesExecutedCount: number;
+  routeTaken: string[];
+  executionSummary: string;
+  claimGroundednessRecords: ClaimGroundednessRecord[];
+  evaluationLogs: string[];
+}
+
+export interface BaselineComparisonReport {
+  scenarioType: ScenarioType;
+  scenarioTitle: string;
+  autonomousAgent: {
+    accuracy: number;
+    taskCompletion: number;
+    groundedness: number;
+    hallucinationRate: number;
+    recoveryRate: number;
+    medianLatencyMs: number;
+    resourceUtilization: number;
+    confidence: number;
+    replansCount: number;
+    conflictsResolved: number;
+  };
+  baselineAgent: {
+    accuracy: number;
+    taskCompletion: number;
+    groundedness: number;
+    hallucinationRate: number;
+    recoveryRate: number;
+    medianLatencyMs: number;
+    resourceUtilization: number;
+    confidence: number;
+    replansCount: number;
+    conflictsResolved: number;
+  };
+  delta: {
+    accuracyDelta: number;
+    groundednessDelta: number;
+    hallucinationReduction: number;
+    recoveryDelta: number;
+    latencyDelta: number;
+  };
+  comparativeAnalysis: string;
+}
+
+export interface RepeatedRunSummary {
+  scenarioType: ScenarioType;
+  totalRuns: number;
+  successfulRuns: number;
+  failedRuns: number;
+  scoreMean: number;
+  scoreVariance: number;
+  confidenceMean: number;
+  confidenceVariance: number;
+  findingOverlapRate: number;
+  consistencyScore: number; // 0 - 100
+  medianLatencyMs: number;
+}
+
+export interface EvaluationReport {
+  id: string;
+  missionId: string;
+  generatedAt: string;
+  overallScore: number; // 0 - 100
+  totalScenariosExecuted: number;
+  scenariosPassed: number;
+  coreMetrics: Record<EvaluationMetricId, EvaluationMetric>;
+  scenarioResults: ScenarioEvaluation[];
+  baselineComparisons: BaselineComparisonReport[];
+  repeatedRunSummaries: RepeatedRunSummary[];
+  summaryHeadline: string;
+  strategicRecommendations: string[];
 }
 
